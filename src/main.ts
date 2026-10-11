@@ -2,25 +2,23 @@ import { AppManager } from './core/AppManager';
 import { TileMode } from './modes/TileMode';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event'; // 👈 ここに追加！
+import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow, availableMonitors } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { initDebug, dlog, derr } from './debug';
+import {
+  type AppSettings,
+  SETTINGS_CHANGED_EVENT,
+  loadGlobal,
+  loadEffectiveSettings,
+  resolveMonitorKey,
+  saveGlobal,
+  saveMonitorDefault,
+  resetSettings,
+} from './settings';
 
-const SETTINGS_KEY = 'wiredframe_settings_v1';
-
-// デフォルト設定値
-const DEFAULT_SETTINGS = {
-  targetDir: "",
-  intervalSec: 12,
-  playMode: "rotation",
-  fixedPattern: "tile",
-  tileSize: 2.0,
-  spacingX: 4.5,
-  spacingY: 2.8,
-  bgColor: "#000000",
-  bgImagePath: "",
-  multiMonitor: false,
-};
+// デバッグ基盤（ログ転送・エラー捕捉・F2オーバーレイ）。他の処理より前に初期化する
+initDebug();
 
 const appContainer = document.querySelector('#app') as HTMLElement;
 if (appContainer) {
@@ -51,7 +49,7 @@ if (appContainer) {
   const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
 
   // ⚙ 設定をUIフォームとアプリに適用するヘルパー関数
-  const applySettingsToApp = async (settings: typeof DEFAULT_SETTINGS, isInitial = false) => {
+  const applySettingsToApp = async (settings: AppSettings, isInitial = false) => {
     pathInput.value = settings.targetDir;
     intervalInput.value = settings.intervalSec.toString();
     playModeSelect.value = settings.playMode;
@@ -85,19 +83,28 @@ if (appContainer) {
     }
   };
 
-  // 🚀 起動時に保存された設定をロードして適用
-  const loadSavedSettings = async () => {
+  // このウィンドウがいるモニターの保存キー（起動時に決まる。決まるまでは 'unknown'）
+  let myMonitorKey = 'unknown';
+
+  // 🚀 保存された設定を読み直して適用する（起動時と、設定が保存されたとき）
+  const loadAndApply = async (reason: string) => {
     try {
-      const saved = localStorage.getItem(SETTINGS_KEY);
-      const settings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+      const settings = loadEffectiveSettings(myMonitorKey, reason);
       await applySettingsToApp(settings, true);
     } catch (e) {
-      console.error('設定のロードに失敗しました:', e);
-      await applySettingsToApp(DEFAULT_SETTINGS, true);
+      derr(`設定の適用に失敗 (${reason}):`, e);
     }
   };
 
-  loadSavedSettings();
+  (async () => {
+    myMonitorKey = await resolveMonitorKey();
+    await loadAndApply('boot');
+  })();
+
+  // 設定が保存されたら、全ウィンドウ（保存した main も含む）が同じ経路で読み直して適用する
+  listen(SETTINGS_CHANGED_EVENT, () => {
+    void loadAndApply(SETTINGS_CHANGED_EVENT);
+  }).catch((e) => derr(`${SETTINGS_CHANGED_EVENT} の購読に失敗:`, e));
 
   // 🖥️ マルチモニター対応の展開を実行
   initMultiMonitor();
@@ -112,14 +119,12 @@ if (appContainer) {
       if (currentLabel !== 'main') return;
 
       // 設定でマルチモニターが無効なら展開しない
-      const saved = localStorage.getItem(SETTINGS_KEY);
-      const settings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
-      if (!settings.multiMonitor) {
-        console.log('シングルウィンドウモードで動作します');
+      if (!loadGlobal().multiMonitor) {
+        dlog('シングルウィンドウモードで動作します');
         return;
       }
 
-      console.log('Rust側でマルチモニターウィンドウを展開します...');
+      dlog('Rust側でマルチモニターウィンドウを展開します...');
       await invoke('open_sub_monitors');
     } catch (err) {
       console.error('マルチモニター初期化エラー:', err);
@@ -175,9 +180,26 @@ if (appContainer) {
   });
 
   // 💾 保存ボタン
+  // 設定の保存・リセットのあとに、全ウィンドウへ「読み直して適用して」と知らせる。
+  // 配信に失敗したときは、せめて自分のウィンドウだけでも適用する。
+  const notifySettingsChanged = async () => {
+    try {
+      await emit(SETTINGS_CHANGED_EVENT);
+    } catch (e) {
+      derr(`${SETTINGS_CHANGED_EVENT} の配信に失敗。このウィンドウだけ適用する:`, e);
+      await loadAndApply('local-fallback');
+    }
+  };
+
   saveBtn?.addEventListener('click', async () => {
-    const newSettings = {
+    // 共通（画像フォルダ・マルチモニター）
+    saveGlobal({
       targetDir: pathInput.value,
+      multiMonitor: multiMonitorInput.checked,
+    });
+
+    // Step 3 までは、このパネルは「モニター共通の既定値」を編集する
+    saveMonitorDefault({
       intervalSec: parseFloat(intervalInput.value) || 12,
       playMode: playModeSelect.value,
       fixedPattern: fixedPatternSelect.value,
@@ -186,32 +208,17 @@ if (appContainer) {
       spacingY: parseFloat(spacingYInput.value) || 2.8,
       bgColor: bgColorInput.value,
       bgImagePath: bgImageInput.value,
-      multiMonitor: multiMonitorInput.checked,
-    };
-
-    // localStorageに保存
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-
-    // アプリに反映
-    tileMode.setSwitchInterval(newSettings.intervalSec);
-    (tileMode as any).setPlayConfig?.(newSettings.playMode, newSettings.fixedPattern);
-    await (tileMode as any).setAppearanceConfig?.({
-      tileSize: newSettings.tileSize,
-      spacingX: newSettings.spacingX,
-      spacingY: newSettings.spacingY,
-      bgColor: newSettings.bgColor,
-      bgImagePath: newSettings.bgImagePath
     });
-    await tileMode.updateImageDirectory(newSettings.targetDir);
 
+    await notifySettingsChanged();
     settingsModal?.classList.remove('open');
   });
 
   // 🔄 デフォルトに戻すボタン
   resetBtn?.addEventListener('click', async () => {
     if (confirm('設定を初期状態に戻しますか？')) {
-      localStorage.removeItem(SETTINGS_KEY);
-      await applySettingsToApp(DEFAULT_SETTINGS, true);
+      resetSettings(myMonitorKey);
+      await notifySettingsChanged();
       settingsModal?.classList.remove('open');
     }
   });
