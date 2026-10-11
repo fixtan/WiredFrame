@@ -109,9 +109,7 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "settings" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.emit::<()>("open-settings", ());
-                            }
+                            let _ = app.emit_to("main", "open-settings", ());
                         }
                         "quit" => {
                             app.exit(0);

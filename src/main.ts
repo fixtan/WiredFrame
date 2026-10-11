@@ -128,7 +128,9 @@ if (appContainer) {
 
 
   // ⚙ タスクトレイからのイベント
+  const isMain = getCurrentWindow().label === 'main';
   listen('open-settings', () => {
+    if (!isMain) return;
     settingsModal?.classList.add('open');
   });
 
