@@ -1,8 +1,10 @@
 import { AppManager } from './core/AppManager';
 import { TileMode } from './modes/TileMode';
-import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event'; // 👈 ここに追加！
+import { getCurrentWindow, availableMonitors } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 const SETTINGS_KEY = 'wiredframe_settings_v1';
 
@@ -44,6 +46,7 @@ if (appContainer) {
   const spacingXInput = document.getElementById('input-spacing-x') as HTMLInputElement;
   const spacingYInput = document.getElementById('input-spacing-y') as HTMLInputElement;
   const bgColorInput = document.getElementById('input-bg-color') as HTMLInputElement;
+
 
   // ⚙ 設定をUIフォームとアプリに適用するヘルパー関数
   const applySettingsToApp = async (settings: typeof DEFAULT_SETTINGS, isInitial = false) => {
@@ -92,6 +95,67 @@ if (appContainer) {
   };
 
   loadSavedSettings();
+
+  // 🖥️ マルチモニター対応の展開を実行
+  initMultiMonitor();
+
+  // 🖥️ マルチモニター自動展開の初期化関数
+  async function initMultiMonitor() {
+    try {
+      const currentWin = getCurrentWindow();
+      const currentLabel = currentWin.label;
+
+      // メインウィンドウ（最初から起動しているもの）以外の場合は、これ以上ウィンドウを増やさない（無限増殖を防ぐため）
+      if (currentLabel !== 'main') {
+        return;
+      }
+
+      const monitors = await availableMonitors();
+      console.log('検出されたモニター一覧:', monitors);
+
+      // モニターが2つ以上ある場合、2つ目以降のモニター用ウィンドウを動的生成
+      if (monitors.length > 1) {
+        for (let i = 1; i < monitors.length; i++) {
+          const monitor = monitors[i];
+          const subWindowLabel = `sub-monitor-${i}`;
+
+          // すでに存在していなければ作成
+          try {
+            const existingWin = await WebviewWindow.getByLabel(subWindowLabel);
+            if (existingWin) continue;
+          } catch (_) {
+            // 存在しない場合は新規作成へ進む
+          }
+
+          console.log(`モニター ${i + 1} 用のウィンドウを作成します:`, monitor.name);
+
+          const subWin = new WebviewWindow(subWindowLabel, {
+            url: 'index.html',
+            title: `WiredFrame - Monitor ${i + 1}`,
+            x: monitor.position.x,
+            y: monitor.position.y,
+            width: monitor.size.width,
+            height: monitor.size.height,
+            decorations: true,
+            transparent: false,
+            resizable: false,
+            fullscreen: true, // 各サブモニターで最初からフルスクリーン
+          });
+
+          subWin.once('tauri://created', async () => {
+            console.log(`サブウィンドウ ${subWindowLabel} が作成されました`);
+          });
+
+          subWin.once('tauri://error', (err) => {
+            console.error(`サブウィンドウ作成エラー (${subWindowLabel}):`, err);
+          });
+        }
+      }
+    } catch (err) {
+      console.error('マルチモニター初期化エラー:', err);
+    }
+  }
+
 
   // ⚙ タスクトレイからのイベント
   listen('open-settings', () => {
@@ -181,20 +245,23 @@ if (appContainer) {
 
   const appWin = getCurrentWindow();
 
-  // 🖥️ F11キーでフルスクリーン切替、Escで解除
+  // 🖥️ F11キーでRust経由全ウィンドウ連動のフルスクリーン切替、Escで解除
   window.addEventListener('keydown', async (e) => {
     if (e.key === 'F11') {
-      e.preventDefault(); // ブラウザのデフォルト動作などを防ぐ
+      e.preventDefault();
       try {
         const isFs = await appWin.isFullscreen();
-        await appWin.setFullscreen(!isFs);
+        const nextState = !isFs;
+
+        // Rust側コマンドを呼び出して、全モニターのウィンドウを一括フルスクリーン切替
+        await invoke('set_fullscreen_all', { fullscreen: nextState });
       } catch (err) {
         console.error('フルスクリーン切替エラー:', err);
       }
     } else if (e.key === 'Escape') {
       try {
         if (await appWin.isFullscreen()) {
-          await appWin.setFullscreen(false);
+          await invoke('set_fullscreen_all', { fullscreen: false });
         }
       } catch (err) {
         console.error('フルスクリーン解除エラー:', err);

@@ -4,7 +4,7 @@ use std::path::Path;
 // タスクトレイ
 use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem};
-use tauri::{Manager, Emitter}; // ← Emitter を追加！
+use tauri::{Manager, Emitter};
 
 // フロントエンドから呼び出せるRustコマンド
 #[tauri::command]
@@ -35,11 +35,24 @@ fn get_images_from_dir(dir_path: String) -> Result<Vec<String>, String> {
     Ok(images)
 }
 
+// 🖥️ すべてのウィンドウのフルスクリーンを一括切替するコマンド
+#[tauri::command]
+fn set_fullscreen_all(app: tauri::AppHandle, fullscreen: bool) -> Result<(), String> {
+    for (_, window) in app.webview_windows() {
+        let _ = window.set_fullscreen(fullscreen);
+    }
+    Ok(())
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![get_images_from_dir])
+        .invoke_handler(tauri::generate_handler![
+            get_images_from_dir,
+            set_fullscreen_all // 👈 ここに登録
+        ])
         .setup(|app| {
             // トレイメニューの作成（「設定」と「終了」）
             let settings_item = MenuItem::with_id(app, "settings", "設定", true, None::<String>)?;
