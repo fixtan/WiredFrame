@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>WiredFrame</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #000;
+        font-family: sans-serif;
+      }
+      #app {
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /* 設定モーダルオーバーレイ */
+      #settings-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(6px);
+        z-index: 200;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+      #settings-modal.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* 設定パネル本体 */
+      .settings-panel {
+        background: rgba(15, 15, 25, 0.95);
+        border: 1px solid #00ffff66;
+        border-radius: 8px;
+        width: 480px;
+        padding: 30px;
+        box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
+        color: #fff;
+        box-sizing: border-box;
+      }
+      .settings-panel h2 {
+        margin-top: 0;
+        color: #00ffff;
+        font-size: 1.1rem;
+        border-bottom: 1px solid #00ffff33;
+        padding-bottom: 10px;
+        letter-spacing: 1px;
+      }
+      .setting-group {
+        margin-bottom: 16px;
+      }
+      .setting-group label {
+        display: block;
+        font-size: 0.82rem;
+        color: #aaa;
+        margin-bottom: 6px;
+      }
+      .setting-group input[type="text"],
+      .setting-group input[type="number"],
+      .setting-group select {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid #444;
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 0.9rem;
+      }
+      .setting-group input:focus,
+      .setting-group select:focus {
+        border-color: #00ffff;
+        outline: none;
+      }
+      .path-row {
+        display: flex;
+        gap: 8px;
+      }
+      .path-row button {
+        background: #222;
+        color: #00ffff;
+        border: 1px solid #00ffff55;
+        padding: 0 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      .path-row button:hover {
+        background: rgba(0, 255, 255, 0.2);
+      }
+      .settings-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 24px;
+      }
+      .settings-footer button {
+        padding: 8px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 0.9rem;
+      }
+      #save-settings {
+        background: #00ffff;
+        color: #000;
+        border: none;
+      }
+      #save-settings:hover {
+        background: #00cccc;
+      }
+      #close-settings {
+        background: transparent;
+        color: #aaa;
+        border: 1px solid #444;
+      }
+      #close-settings:hover {
+        color: #fff;
+        border-color: #777;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 設定モーダル -->
+    <div id="settings-modal" class="settings-modal">
+      <div class="settings-panel">
+        <h2>WIRED FRAME CONFIGURATION</h2>
+
+        <div class="setting-group">
+          <label>画像フォルダパス</label>
+          <div class="path-row">
+            <input type="text" id="input-path" placeholder="フォルダパスを入力..." />
+            <button id="browse-btn">参照</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <label>パターン切替間隔（秒）</label>
+          <input type="number" id="input-interval" value="12" min="1" />
+        </div>
+
+        <!-- 再生モード設定 -->
+        <div class="setting-group">
+          <label>アニメーション再生モード</label>
+          <select id="select-play-mode">
+            <option value="rotation">ローテーション（順番に切り替え）</option>
+            <option value="random">ランダム切替</option>
+            <option value="fixed">固定</option>
+          </select>
+        </div>
+
+        <!-- 固定時のパターン選択（初期非表示） -->
+        <div class="setting-group" id="fixed-pattern-container" style="display: none;">
+          <label>固定パターン選択</label>
+          <select id="select-fixed-pattern">
+            <option value="tile">Tile Mode</option>
+            <option value="cardScatter">Card Scatter</option>
+            <option value="crystalForm">Crystal Form</option>
+            <option value="cylinderWrap">Cylinder Wrap</option>
+            <option value="doubleHelix">Double Helix</option>
+            <option value="flatWave">Flat Wave</option>
+            <option value="matrixRain">Matrix Rain</option>
+            <option value="rippleRadial">Ripple Radial</option>
+            <option value="spiralFlow">Spiral Flow</option>
+            <option value="tunnelDepth">Tunnel Depth</option>
+          </select>
+        </div>
+
+        <!-- 🆕 追加：タイルサイズ -->
+        <div class="setting-group">
+          <label>タイルサイズ</label>
+          <input type="number" id="input-tile-size" value="2.0" step="0.1" min="0.5" max="5.0" />
+        </div>
+
+        <!-- 🆕 追加：グリッド間隔（横・縦） -->
+        <div class="setting-group">
+          <label>グリッド間隔 (横 / 縦)</label>
+          <div class="path-row">
+            <input type="number" id="input-spacing-x" value="4.5" step="0.1" />
+            <input type="number" id="input-spacing-y" value="2.8" step="0.1" />
+          </div>
+        </div>
+
+        <!-- 🆕 追加：背景色 -->
+        <div class="setting-group">
+          <label>背景色</label>
+          <input type="color" id="input-bg-color" value="#000000" style="height: 38px; padding: 2px; cursor: pointer; box-sizing: border-box;" />
+        </div>
+
+        <!-- 🆕 追加：背景画像パス -->
+        <div class="setting-group">
+          <label>背景画像パス（オプション）</label>
+          <div class="path-row">
+            <input type="text" id="input-bg-image" placeholder="背景画像のパス..." />
+            <button id="browse-bg-btn">参照</button>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button id="reset-settings" class="btn" style="background: transparent; color: #ff5555; border: 1px solid #ff555555;">デフォルトに戻す</button>
+          <div style="flex-grow: 1;"></div>
+          <button id="close-settings">キャンセル</button>
+          <button id="save-settings">適用して保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
