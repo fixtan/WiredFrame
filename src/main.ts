@@ -10,7 +10,7 @@ const SETTINGS_KEY = 'wiredframe_settings_v1';
 
 // デフォルト設定値
 const DEFAULT_SETTINGS = {
-  targetDir: "D:/[DATA]/[★画像]/[★壁紙]/ご注文はうさぎですか？/横",
+  targetDir: "",
   intervalSec: 12,
   playMode: "rotation",
   fixedPattern: "tile",
@@ -18,7 +18,8 @@ const DEFAULT_SETTINGS = {
   spacingX: 4.5,
   spacingY: 2.8,
   bgColor: "#000000",
-  bgImagePath: ""
+  bgImagePath: "",
+  multiMonitor: false,
 };
 
 const appContainer = document.querySelector('#app') as HTMLElement;
@@ -47,6 +48,7 @@ if (appContainer) {
   const spacingYInput = document.getElementById('input-spacing-y') as HTMLInputElement;
   const bgColorInput = document.getElementById('input-bg-color') as HTMLInputElement;
 
+  const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
 
   // ⚙ 設定をUIフォームとアプリに適用するヘルパー関数
   const applySettingsToApp = async (settings: typeof DEFAULT_SETTINGS, isInitial = false) => {
@@ -62,7 +64,8 @@ if (appContainer) {
     bgColorInput.value = settings.bgColor;
     bgImageInput.value = settings.bgImagePath;
 
-    // TileModeへ反映
+    multiMonitorInput.checked = settings.multiMonitor;
+        // TileModeへ反映
     tileMode.setSwitchInterval(settings.intervalSec);
     if (typeof (tileMode as any).setPlayConfig === 'function') {
       (tileMode as any).setPlayConfig(settings.playMode, settings.fixedPattern);
@@ -99,58 +102,25 @@ if (appContainer) {
   // 🖥️ マルチモニター対応の展開を実行
   initMultiMonitor();
 
-  // 🖥️ マルチモニター自動展開の初期化関数
+  // 🖥️ マルチモニター自動展開の初期化関数（Rust側に委譲）
   async function initMultiMonitor() {
     try {
       const currentWin = getCurrentWindow();
       const currentLabel = currentWin.label;
 
-      // メインウィンドウ（最初から起動しているもの）以外の場合は、これ以上ウィンドウを増やさない（無限増殖を防ぐため）
-      if (currentLabel !== 'main') {
+      // メインウィンドウ以外では実行しない
+      if (currentLabel !== 'main') return;
+
+      // 設定でマルチモニターが無効なら展開しない
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      const settings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+      if (!settings.multiMonitor) {
+        console.log('シングルウィンドウモードで動作します');
         return;
       }
 
-      const monitors = await availableMonitors();
-      console.log('検出されたモニター一覧:', monitors);
-
-      // モニターが2つ以上ある場合、2つ目以降のモニター用ウィンドウを動的生成
-      if (monitors.length > 1) {
-        for (let i = 1; i < monitors.length; i++) {
-          const monitor = monitors[i];
-          const subWindowLabel = `sub-monitor-${i}`;
-
-          // すでに存在していなければ作成
-          try {
-            const existingWin = await WebviewWindow.getByLabel(subWindowLabel);
-            if (existingWin) continue;
-          } catch (_) {
-            // 存在しない場合は新規作成へ進む
-          }
-
-          console.log(`モニター ${i + 1} 用のウィンドウを作成します:`, monitor.name);
-
-          const subWin = new WebviewWindow(subWindowLabel, {
-            url: 'index.html',
-            title: `WiredFrame - Monitor ${i + 1}`,
-            x: monitor.position.x,
-            y: monitor.position.y,
-            width: monitor.size.width,
-            height: monitor.size.height,
-            decorations: true,
-            transparent: false,
-            resizable: false,
-            fullscreen: true, // 各サブモニターで最初からフルスクリーン
-          });
-
-          subWin.once('tauri://created', async () => {
-            console.log(`サブウィンドウ ${subWindowLabel} が作成されました`);
-          });
-
-          subWin.once('tauri://error', (err) => {
-            console.error(`サブウィンドウ作成エラー (${subWindowLabel}):`, err);
-          });
-        }
-      }
+      console.log('Rust側でマルチモニターウィンドウを展開します...');
+      await invoke('open_sub_monitors');
     } catch (err) {
       console.error('マルチモニター初期化エラー:', err);
     }
@@ -213,7 +183,8 @@ if (appContainer) {
       spacingX: parseFloat(spacingXInput.value) || 4.5,
       spacingY: parseFloat(spacingYInput.value) || 2.8,
       bgColor: bgColorInput.value,
-      bgImagePath: bgImageInput.value
+      bgImagePath: bgImageInput.value,
+      multiMonitor: multiMonitorInput.checked,
     };
 
     // localStorageに保存
