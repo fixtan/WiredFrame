@@ -31,7 +31,7 @@ export type GlobalSettings = {
 };
 
 export type MonitorSettings = {
-  mode: string; // 'tiles'（画像タイル）| 'noise1'（カールノイズの粒子）| 'noise2'（Mandelbulb）
+  mode: string; // 'tiles'（画像タイル）| 'noise1'（カールノイズの粒子）| 'noise2'（Mandelbulb）| 'noise3'（ワイヤーフレーム地形）
   noiseSize: number; // ノイズの粒子テクスチャの一辺（粒子数は二乗）。負荷に直結する
   fps: number; // FPS の上限（整数）
   modeParams: Record<string, ParamValues>; // モードごとの調整値（src/modes/params.ts）。無い項目は既定値
@@ -98,7 +98,7 @@ const KEY_MONITOR_DEFAULT = 'wiredframe_monitor_default_v2';
 const KEY_MONITOR_PREFIX = 'wiredframe_monitor_v2:';
 
 const PLAY_MODES = ['rotation', 'random', 'fixed'];
-export const MODES = ['tiles', 'noise1', 'noise2'];
+export const MODES = ['tiles', 'noise1', 'noise2', 'noise3'];
 // 0 以下だと壊れる項目
 const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY']);
 // 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）

@@ -43,10 +43,32 @@ export const NOISE2_PARAMS: ParamDef[] = [
   { key: 'bloom', label: '光のにじみ（0 でオフ。オフが軽い）', min: 0, max: 2, step: 0.1, default: 0.5 },
 ];
 
+export const NOISE3_PARAMS: ParamDef[] = [
+  { key: 'size', label: '地形の範囲（広げると遠くまで続く）', min: 10, max: 200, step: 2, default: 24 },
+  { key: 'segments', label: '分割数（多いほど細かいが重い）', min: 64, max: 512, step: 32, default: 320 },
+  { key: 'fog', label: '霧で消える距離（0 でオフ。範囲の半分くらいで端が見えなくなる）', min: 0, max: 300, step: 2, default: 16 },
+  { key: 'height', label: '山の高さ', min: 0.2, max: 4, step: 0.1, default: 1.5 },
+  { key: 'noiseScale', label: '山の細かさ（大きいほど起伏が細かい）', min: 0.5, max: 8, step: 0.1, default: 2 },
+  { key: 'detail', label: '細部の層の数', min: 1, max: 6, step: 1, default: 4 },
+  { key: 'roughness', label: '細部の強さ（大きいほどギザギザ）', min: 0.2, max: 0.8, step: 0.05, default: 0.5 },
+  { key: 'swell', label: 'うねり（山が上下にゆっくり増減）', min: 0, max: 2, step: 0.1, default: 0.5 },
+  { key: 'speed', label: '波打つ速さ', min: 0, max: 4, step: 0.1, default: 1 },
+  { key: 'spin', label: '地形の回転の速さ（0 で止める）', min: 0, max: 0.3, step: 0.01, default: 0.06 },
+  { key: 'lowHue', label: '低い所の色（色相 0〜360）', min: 0, max: 360, step: 1, default: 218 },
+  { key: 'highHue', label: '高い所の色（色相 0〜360）', min: 0, max: 360, step: 1, default: 121 },
+  { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 0.6 },
+  { key: 'lowLight', label: '低い所の明るさ', min: 0.05, max: 0.8, step: 0.01, default: 0.43 },
+  { key: 'highLight', label: '高い所の明るさ', min: 0.05, max: 0.8, step: 0.01, default: 0.4 },
+  { key: 'colorMix', label: '高い所の色の出方（0 で低い所の色だけ）', min: 0, max: 1, step: 0.05, default: 0.8 },
+  { key: 'colorContrast', label: '高低の色の差（大きいほどくっきり）', min: 0.5, max: 5, step: 0.1, default: 2 },
+  { key: 'distance', label: 'カメラの距離（マウスのホイールでも変えられる）', min: 1, max: 40, step: 0.5, default: 4.5 },
+];
+
 /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
 export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise1: NOISE1_PARAMS,
   noise2: NOISE2_PARAMS,
+  noise3: NOISE3_PARAMS,
 };
 
 export function paramDefaults(defs: ParamDef[]): ParamValues {
