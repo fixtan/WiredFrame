@@ -19,6 +19,9 @@ import { fetchCurrentMonitor, monitorKeyOf } from './monitor';
 export type GlobalSettings = {
   targetDir: string;
   multiMonitor: boolean;
+  hotkey: string; // 起動ホットキー（例 'Ctrl+Alt+S'）。空なら無効
+  idleEnabled: boolean; // 無操作で自動起動するか
+  idleMinutes: number; // 自動起動までの無操作時間（分、整数）
 };
 
 export type MonitorSettings = {
@@ -41,6 +44,9 @@ export type AppSettings = GlobalSettings & MonitorSettings;
 export const DEFAULT_GLOBAL: GlobalSettings = {
   targetDir: '',
   multiMonitor: false,
+  hotkey: '',
+  idleEnabled: false,
+  idleMinutes: 10,
 };
 
 export const DEFAULT_MONITOR: MonitorSettings = {
@@ -74,7 +80,13 @@ const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY'
 // 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）
 export const GRID_MIN = 1;
 export const GRID_MAX = 40;
-const GRID_KEYS = new Set(['cols', 'rows']);
+export const IDLE_MIN = 1;
+export const IDLE_MAX = 720;
+const INT_RANGES: Record<string, [number, number]> = {
+  cols: [GRID_MIN, GRID_MAX],
+  rows: [GRID_MIN, GRID_MAX],
+  idleMinutes: [IDLE_MIN, IDLE_MAX],
+};
 
 // ---- 内部ヘルパー ----------------------------------------------------------
 
@@ -131,8 +143,9 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
       dwarn(`設定: ${where}.${k} の値が不正（${v}）。初期値 ${def} を使う`);
       continue;
     }
-    if (GRID_KEYS.has(k) && (!Number.isInteger(v) || (v as number) < GRID_MIN || (v as number) > GRID_MAX)) {
-      dwarn(`設定: ${where}.${k} の値が不正（${v}。${GRID_MIN}〜${GRID_MAX} の整数）。初期値 ${def} を使う`);
+    const range = INT_RANGES[k];
+    if (range && (!Number.isInteger(v) || (v as number) < range[0] || (v as number) > range[1])) {
+      dwarn(`設定: ${where}.${k} の値が不正（${v}。${range[0]}〜${range[1]} の整数）。初期値 ${def} を使う`);
       continue;
     }
     if (k === 'playMode' && !PLAY_MODES.includes(v as string)) {

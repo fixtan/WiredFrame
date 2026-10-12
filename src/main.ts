@@ -4,7 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { initDebug, dlog, derr } from './debug';
+import { initDebug, dlog, dwarn, derr } from './debug';
 import {
   type AppSettings,
   type GlobalSettings,
@@ -12,6 +12,9 @@ import {
   DEFAULT_MONITOR,
   GRID_MIN,
   GRID_MAX,
+  IDLE_MIN,
+  IDLE_MAX,
+  DEFAULT_GLOBAL,
   SETTINGS_CHANGED_EVENT,
   loadGlobal,
   loadEffectiveSettings,
@@ -54,6 +57,10 @@ if (appContainer) {
   const bgColorInput = document.getElementById('input-bg-color') as HTMLInputElement;
 
   const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
+  const hotkeyInput = document.getElementById('input-hotkey') as HTMLInputElement;
+  const hotkeyStatus = document.getElementById('hotkey-status');
+  const idleEnabledInput = document.getElementById('input-idle-enabled') as HTMLInputElement;
+  const idleMinutesInput = document.getElementById('input-idle-minutes') as HTMLInputElement;
 
   const isMain = getCurrentWindow().label === 'main';
   const panelMonitorLabel = document.getElementById('panel-monitor-label');
@@ -97,6 +104,9 @@ if (appContainer) {
     bgColorInput.value = settings.bgColor;
     bgImageInput.value = settings.bgImagePath;
     multiMonitorInput.checked = settings.multiMonitor;
+    hotkeyInput.value = settings.hotkey;
+    idleEnabledInput.checked = settings.idleEnabled;
+    idleMinutesInput.value = settings.idleMinutes.toString();
   };
 
   // 🎬 設定を TileMode に反映する。reloadDir=true のときは画像フォルダも読み直す
@@ -127,9 +137,20 @@ if (appContainer) {
   // セーバーの起動に必要な設定を Rust に渡す（Rust だけで起動できるように）。main だけが渡す
   type SaverState = { running: boolean; settingsMode: boolean };
   const pushSaverConfig = (s: AppSettings) => {
-    invoke('set_saver_config', { config: { multiMonitor: s.multiMonitor } }).catch((e) =>
-      derr('set_saver_config に失敗:', e),
-    );
+    invoke<{ hotkeyError: string | null }>('set_saver_config', {
+      config: {
+        multiMonitor: s.multiMonitor,
+        idleEnabled: s.idleEnabled,
+        idleMinutes: s.idleMinutes,
+        hotkey: s.hotkey,
+      },
+    })
+      .then((res) => {
+        // ホットキーを登録できなかったときは、パネルに理由を出す（他のアプリと重なった場合など）
+        if (hotkeyStatus) hotkeyStatus.textContent = res.hotkeyError ?? '';
+        if (res.hotkeyError) dwarn(`ホットキー: ${res.hotkeyError}`);
+      })
+      .catch((e) => derr('set_saver_config に失敗:', e));
   };
 
   // 🚀 保存された設定を読み直して、フォームと画面に適用する
@@ -310,6 +331,37 @@ if (appContainer) {
     void closePanel(true, isMain);
   });
 
+  // ⌨️ ホットキー入力：欄を選んでキーを押すと、Ctrl+Alt+S のような文字列にして入れる
+  const keyNameOf = (code: string): string | null => {
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+    const map: Record<string, string> = {
+      Space: 'Space', Enter: 'Enter', Tab: 'Tab',
+      ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+      Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Insert: 'Insert',
+    };
+    return map[code] ?? null;
+  };
+  hotkeyInput?.addEventListener('keydown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      hotkeyInput.value = '';
+      return;
+    }
+    const key = keyNameOf(e.code);
+    if (!key) return; // 修飾キーだけ、未対応のキーは待つ
+    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+    // 普通のキー単独（A など）は他の操作を奪うので、修飾キーが要る（F キーだけは単独でもよい）
+    if (mods.length === 0 && !/^F\d+$/.test(key)) {
+      if (hotkeyStatus) hotkeyStatus.textContent = 'Ctrl / Alt / Shift のどれかと一緒に押してください（F キーは単独でも可）';
+      return;
+    }
+    if (hotkeyStatus) hotkeyStatus.textContent = '';
+    hotkeyInput.value = [...mods, key].join('+');
+  });
+
   // 📁 フォルダ参照
   browseBtn?.addEventListener('click', async () => {
     try {
@@ -355,7 +407,17 @@ if (appContainer) {
     let globalChanged = false;
     let multiChanged = false;
     if (isMain) {
-      const g: GlobalSettings = { targetDir: pathInput.value, multiMonitor: multiMonitorInput.checked };
+      const minutes = Number(idleMinutesInput.value);
+      const g: GlobalSettings = {
+        targetDir: pathInput.value,
+        multiMonitor: multiMonitorInput.checked,
+        hotkey: hotkeyInput.value.trim(),
+        idleEnabled: idleEnabledInput.checked,
+        idleMinutes:
+          Number.isInteger(minutes) && minutes >= IDLE_MIN && minutes <= IDLE_MAX
+            ? minutes
+            : DEFAULT_GLOBAL.idleMinutes,
+      };
       saveGlobal(g);
       multiChanged = g.multiMonitor !== globalAtOpen.multiMonitor;
       globalChanged = g.targetDir !== globalAtOpen.targetDir || multiChanged;

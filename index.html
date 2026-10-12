@@ -227,6 +227,17 @@
         </div>
 
         <div id="global-section-2">
+          <div class="setting-group" style="margin-top: 16px;">
+            <label>スクリーンセーバーの起動ホットキー（入力欄を選んでキーを押す。Backspace / Delete で解除）</label>
+            <input type="text" id="input-hotkey" placeholder="例: Ctrl+Alt+S" readonly style="caret-color: transparent; cursor: pointer;" />
+            <div id="hotkey-status" style="font-size: 0.75rem; color: #ff8888; margin-top: 4px;"></div>
+          </div>
+          <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; cursor: pointer; font-size: 0.82rem; color: #aaa; flex-wrap: wrap;">
+            <input type="checkbox" id="input-idle-enabled">
+            <span>キー・マウス操作が</span>
+            <input type="number" id="input-idle-minutes" value="10" step="1" min="1" max="720" style="width: 70px; background: rgba(0,0,0,0.5); border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px;" />
+            <span>分ない間は、自動で起動する（操作すると終了）</span>
+          </label>
           <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
             <input type="checkbox" id="input-multi-monitor">
             <span>マルチモニター連動（全画面一括展開）を有効にする</span>

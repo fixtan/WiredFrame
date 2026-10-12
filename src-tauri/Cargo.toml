@@ -24,3 +24,8 @@ log = "0.4"
 tauri = { version = "2.12.3", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+
+# 無操作時間（GetLastInputInfo）の取得に使う。Windows のみ
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }

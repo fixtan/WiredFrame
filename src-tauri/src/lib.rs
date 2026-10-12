@@ -1,4 +1,6 @@
 mod debug;
+mod hotkey;
+mod idle;
 mod monitors;
 mod saver;
 
@@ -68,6 +70,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_images_from_dir,
             set_fullscreen_all,
@@ -88,6 +91,10 @@ pub fn run() {
             // モニター構成の変化（抜き差し・配置変更）を見張る
             let watch_handle = app.handle().clone();
             std::thread::spawn(move || monitors::watch(watch_handle));
+
+            // 無操作を見張る（設定で ON のときだけ自動起動。Windows のみ）
+            let idle_handle = app.handle().clone();
+            std::thread::spawn(move || idle::watch(idle_handle));
 
             // トレイメニューの作成（「設定」「デバッグ表示」「終了」）
             let settings_item = MenuItem::with_id(app, "settings", "設定", true, None::<String>)?;

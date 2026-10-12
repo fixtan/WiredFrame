@@ -24,15 +24,36 @@ static SETTINGS_MODE: AtomicBool = AtomicBool::new(false);
 #[serde(rename_all = "camelCase")]
 pub struct SaverConfig {
     pub multi_monitor: bool,
+    /// 無操作で自動起動するか。
+    pub idle_enabled: bool,
+    /// 自動起動までの無操作時間（分）。
+    pub idle_minutes: u32,
+    /// 起動ホットキー（例 `Ctrl+Alt+S`）。空なら無効。
+    pub hotkey: String,
 }
 
-static CONFIG: Mutex<SaverConfig> = Mutex::new(SaverConfig { multi_monitor: false });
+impl SaverConfig {
+    const fn initial() -> Self {
+        SaverConfig {
+            multi_monitor: false,
+            idle_enabled: false,
+            idle_minutes: 10,
+            hotkey: String::new(),
+        }
+    }
+}
 
-fn config() -> SaverConfig {
-    CONFIG
-        .lock()
-        .map(|c| c.clone())
-        .unwrap_or(SaverConfig { multi_monitor: false })
+static CONFIG: Mutex<SaverConfig> = Mutex::new(SaverConfig::initial());
+
+pub fn config() -> SaverConfig {
+    CONFIG.lock().map(|c| c.clone()).unwrap_or(SaverConfig::initial())
+}
+
+/// 無操作で自動起動したときの、起動時刻（GetTickCount）。手動起動なら None。
+static AUTO_STARTED_AT: Mutex<Option<u32>> = Mutex::new(None);
+
+pub fn auto_started_at() -> Option<u32> {
+    AUTO_STARTED_AT.lock().ok().and_then(|v| *v)
 }
 
 pub fn is_running() -> bool {
@@ -163,10 +184,11 @@ fn start_inner(app: &AppHandle, settings_mode: bool) -> Result<(), String> {
 }
 
 /// セーバーを起動する。すでに動いていれば何もしない。
-pub fn start(app: &AppHandle, reason: &str, settings_mode: bool) {
+/// 起動したら true、すでに動いていて何もしなかったら false。
+pub fn start(app: &AppHandle, reason: &str, settings_mode: bool) -> bool {
     if RUNNING.swap(true, Ordering::SeqCst) {
         debug::log("rust", "info", &format!("セーバーは起動済み ({})", reason));
-        return;
+        return false;
     }
     SETTINGS_MODE.store(settings_mode, Ordering::SeqCst);
     debug::log(
@@ -180,6 +202,16 @@ pub fn start(app: &AppHandle, reason: &str, settings_mode: bool) {
     if let Err(e) = app.emit_to("main", "saver-started", reason) {
         debug::log("rust", "error", &format!("saver-started の配信に失敗: {}", e));
     }
+    true
+}
+
+/// 無操作で自動起動する。`tick` は起動時刻（GetTickCount）で、その後の操作で終了するかの判定に使う。
+pub fn start_auto(app: &AppHandle, tick: u32) {
+    if start(app, "idle", false) {
+        if let Ok(mut v) = AUTO_STARTED_AT.lock() {
+            *v = Some(tick);
+        }
+    }
 }
 
 /// セーバーを終了する。動いていなければ何もしない。
@@ -188,6 +220,9 @@ pub fn stop(app: &AppHandle, reason: &str) {
         return;
     }
     SETTINGS_MODE.store(false, Ordering::SeqCst);
+    if let Ok(mut v) = AUTO_STARTED_AT.lock() {
+        *v = None;
+    }
     debug::log("rust", "info", &format!("セーバーを終了 reason={}", reason));
     close_sub_windows(app);
     if let Some(main) = app.get_webview_window("main") {
@@ -222,11 +257,22 @@ pub fn saver_state() -> SaverState {
     }
 }
 
+/// `set_saver_config` の結果。ホットキーを登録できなかったときの理由を返す。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaverConfigResult {
+    pub hotkey_error: Option<String>,
+}
+
 #[tauri::command]
-pub fn set_saver_config(config: SaverConfig) {
+pub async fn set_saver_config(app: AppHandle, config: SaverConfig) -> SaverConfigResult {
     debug::log("rust", "info", &format!("セーバー設定を受け取った: {:?}", config));
+    let hotkey = config.hotkey.clone();
     if let Ok(mut c) = CONFIG.lock() {
         *c = config;
+    }
+    SaverConfigResult {
+        hotkey_error: crate::hotkey::apply(&app, &hotkey).err(),
     }
 }
 
