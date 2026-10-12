@@ -16,8 +16,12 @@
 import { dlog, dwarn, derr } from './debug';
 import { fetchCurrentMonitor, monitorKeyOf } from './monitor';
 
+/** 名前を付けた画像フォルダ。リストは全モニター共通。 */
+export type FolderEntry = { id: string; name: string; path: string };
+
 export type GlobalSettings = {
-  targetDir: string;
+  folders: FolderEntry[]; // 画像フォルダのリスト
+  defaultFolderId: string; // 「共通の既定」を選んだモニターが使うフォルダ（folders の id。リストが空なら ''）
   multiMonitor: boolean;
   hotkey: string; // 起動ホットキー（例 'Ctrl+Alt+S'）。空なら無効
   idleEnabled: boolean; // 無操作で自動起動するか
@@ -28,6 +32,7 @@ export type MonitorSettings = {
   intervalSec: number;
   playMode: string; // 'rotation' | 'random' | 'fixed'
   fixedPattern: string;
+  folderId: string; // このモニターの画像フォルダ（folders の id）。'' なら共通の既定
   tileSize: number;
   spacingX: number;
   spacingY: number;
@@ -38,11 +43,15 @@ export type MonitorSettings = {
   bgImagePath: string;
 };
 
-/** 画面（フォーム・TileMode）に渡す形。v1 の設定と同じ項目。 */
-export type AppSettings = GlobalSettings & MonitorSettings;
+/**
+ * 画面（フォーム・TileMode）に渡す形。`targetDir` は、このモニターで実際に使う画像フォルダのパス
+ * （folderId → 共通の既定 → 未設定 '' の順で決まる）。保存はされない（計算で出す）。
+ */
+export type AppSettings = GlobalSettings & MonitorSettings & { targetDir: string };
 
 export const DEFAULT_GLOBAL: GlobalSettings = {
-  targetDir: '',
+  folders: [],
+  defaultFolderId: '',
   multiMonitor: false,
   hotkey: '',
   idleEnabled: false,
@@ -53,6 +62,7 @@ export const DEFAULT_MONITOR: MonitorSettings = {
   intervalSec: 12,
   playMode: 'rotation',
   fixedPattern: 'tile',
+  folderId: '',
   tileSize: 2.0,
   spacingX: 4.5,
   spacingY: 2.8,
@@ -63,7 +73,7 @@ export const DEFAULT_MONITOR: MonitorSettings = {
   bgImagePath: '',
 };
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { ...DEFAULT_GLOBAL, ...DEFAULT_MONITOR };
+export const DEFAULT_APP_SETTINGS: AppSettings = { ...DEFAULT_GLOBAL, ...DEFAULT_MONITOR, targetDir: '' };
 
 /** 保存で全ウィンドウに配信するイベント。受け取った各ウィンドウが設定を読み直して適用する。 */
 export const SETTINGS_CHANGED_EVENT = 'settings-changed';
@@ -133,6 +143,7 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
     return out as T;
   }
   for (const [k, def] of Object.entries(defaults) as [string, unknown][]) {
+    if (k === 'folders') continue; // 配列。normalizeGlobal で個別に検証する
     if (!(k in raw)) continue;
     const v = raw[k];
     if (typeof v !== typeof def) {
@@ -157,7 +168,76 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
   return out as T;
 }
 
-function summarize(s: AppSettings): string {
+// ---- 画像フォルダのリスト ---------------------------------------------------
+
+/** フォルダリストを検証する。壊れた項目（id・パスが無い、id の重複）は警告して捨てる。 */
+function sanitizeFolders(v: unknown, where: string): FolderEntry[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) {
+    dwarn(`設定: ${where}.folders が配列ではない。空のリストにする:`, v);
+    return [];
+  }
+  const out: FolderEntry[] = [];
+  const seen = new Set<string>();
+  v.forEach((f, i) => {
+    if (!isObject(f) || typeof f.id !== 'string' || typeof f.name !== 'string' || typeof f.path !== 'string' || !f.id || !f.path) {
+      dwarn(`設定: ${where}.folders[${i}] が不正なので捨てる:`, f);
+      return;
+    }
+    if (seen.has(f.id)) {
+      dwarn(`設定: ${where}.folders[${i}] の id が重複している（${f.id}）ので捨てる`);
+      return;
+    }
+    seen.add(f.id);
+    out.push({ id: f.id, name: f.name, path: f.path });
+  });
+  return out;
+}
+
+/**
+ * 共通設定を検証して整える。旧形式（`targetDir` だけ持つ）は、1 件のフォルダリストに移す。
+ * `defaultFolderId` がリストに無ければ、先頭の項目（リストが空なら ''）にする。
+ */
+function normalizeGlobal(raw: unknown, where: string): GlobalSettings {
+  const g = sanitize(raw, DEFAULT_GLOBAL, where);
+  g.folders = sanitizeFolders(isObject(raw) ? raw.folders : undefined, where);
+  if (isObject(raw) && !('folders' in raw) && typeof raw.targetDir === 'string' && raw.targetDir) {
+    g.folders = [{ id: 'f1', name: 'デフォルト', path: raw.targetDir }];
+    g.defaultFolderId = 'f1';
+    dlog(`設定: 旧 targetDir をフォルダリストに移した（${where}）: ${raw.targetDir}`);
+  }
+  if (!g.folders.some((f) => f.id === g.defaultFolderId)) {
+    if (g.defaultFolderId) dwarn(`設定: ${where}.defaultFolderId（${g.defaultFolderId}）がリストに無い。先頭を使う`);
+    g.defaultFolderId = g.folders[0]?.id ?? '';
+  }
+  return g;
+}
+
+/** このモニターが使うフォルダを決める（folderId → 共通の既定 → 無し）。 */
+export function resolveFolder(
+  g: Pick<GlobalSettings, 'folders' | 'defaultFolderId'>,
+  folderId: string,
+): { folder: FolderEntry | null; usedDefault: boolean; missing: boolean } {
+  let missing = false;
+  if (folderId) {
+    const f = g.folders.find((x) => x.id === folderId);
+    if (f) return { folder: f, usedDefault: false, missing: false };
+    missing = true; // 指定されたフォルダがリストから消えている
+  }
+  const d = g.folders.find((x) => x.id === g.defaultFolderId) ?? null;
+  return { folder: d, usedDefault: true, missing };
+}
+
+/** 新しいフォルダの id（既存と重ならない）。 */
+export function newFolderId(existing: FolderEntry[]): string {
+  const used = new Set(existing.map((f) => f.id));
+  for (;;) {
+    const id = 'f' + Math.random().toString(36).slice(2, 8);
+    if (!used.has(id)) return id;
+  }
+}
+
+function summarize(s: object): string {
   return JSON.stringify(s);
 }
 
@@ -175,7 +255,7 @@ function migrateV1IfNeeded() {
   const v1 = readJson(KEY_V1);
 
   if (!hasV2 && v1 !== undefined) {
-    const g = sanitize(v1, DEFAULT_GLOBAL, 'v1');
+    const g = normalizeGlobal(v1, 'v1');
     const m = sanitize(v1, DEFAULT_MONITOR, 'v1');
     writeJson(KEY_GLOBAL, g);
     writeJson(KEY_MONITOR_DEFAULT, m);
@@ -188,14 +268,14 @@ function migrateV1IfNeeded() {
 
 export function loadGlobal(): GlobalSettings {
   migrateV1IfNeeded();
-  return sanitize(readJson(KEY_GLOBAL), DEFAULT_GLOBAL, 'global');
+  return normalizeGlobal(readJson(KEY_GLOBAL), 'global');
 }
 
 /** このモニターで使う設定（共通 + モニター別）を読む。`reason` はログ用。 */
 export function loadEffectiveSettings(monitorKey: string, reason: string): AppSettings {
   migrateV1IfNeeded();
 
-  const global = sanitize(readJson(KEY_GLOBAL), DEFAULT_GLOBAL, 'global');
+  const global = normalizeGlobal(readJson(KEY_GLOBAL), 'global');
 
   const own = readJson(KEY_MONITOR_PREFIX + monitorKey);
   const def = readJson(KEY_MONITOR_DEFAULT);
@@ -211,8 +291,13 @@ export function loadEffectiveSettings(monitorKey: string, reason: string): AppSe
     `monitor(${source})`,
   );
 
-  const settings: AppSettings = { ...global, ...monitor };
-  dlog(`設定: 読込 (${reason}) key=${monitorKey} source=${source}`, summarize(settings));
+  const r = resolveFolder(global, monitor.folderId);
+  if (r.missing) dwarn(`設定: 指定の画像フォルダ（${monitor.folderId}）がリストに無い。共通の既定を使う (key=${monitorKey})`);
+  const settings: AppSettings = { ...global, ...monitor, targetDir: r.folder?.path ?? '' };
+  dlog(
+    `設定: 読込 (${reason}) key=${monitorKey} source=${source} folder=${r.folder ? `${r.folder.name}${r.usedDefault ? '（共通の既定）' : ''}` : '未設定'}`,
+    summarize(settings),
+  );
   return settings;
 }
 

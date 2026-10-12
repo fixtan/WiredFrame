@@ -40,6 +40,8 @@
 
       /* 設定パネル本体 */
       .settings-panel {
+        max-height: 94vh;
+        overflow-y: auto; /* 項目が増えても、画面が低いモニターで保存ボタンが見切れないように */
         background: rgba(15, 15, 25, 0.95);
         border: 1px solid #00ffff66;
         border-radius: 8px;
@@ -82,6 +84,47 @@
       .setting-group select:focus {
         border-color: #00ffff;
         outline: none;
+      }
+      .folder-row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+        align-items: stretch;
+      }
+      .folder-row input.f-name {
+        width: 30%;
+        flex: none;
+      }
+      .folder-row input.f-path {
+        flex: 1;
+        min-width: 0;
+      }
+      .folder-row button,
+      .mini-btn {
+        background: #222;
+        color: #00ffff;
+        border: 1px solid #00ffff55;
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 0 10px;
+        font-weight: bold;
+      }
+      .folder-row button:hover,
+      .mini-btn:hover {
+        background: rgba(0, 255, 255, 0.2);
+      }
+      .folder-row button.f-del {
+        color: #ff7777;
+        border-color: #ff777755;
+      }
+      .mini-btn {
+        padding: 6px 12px;
+        font-size: 0.82rem;
+      }
+      .folder-empty {
+        font-size: 0.75rem;
+        color: #ffcc66;
+        margin-bottom: 6px;
       }
       .path-row {
         display: flex;
@@ -132,6 +175,30 @@
     </style>
   </head>
   <body>
+    <!-- main.ts を読み込めなかったとき（import エラーなど）に、理由をターミナルへ出す。
+         main.ts が動き出したら（initDebug）、そちらのハンドラに任せる -->
+    <script>
+      (function () {
+        function send(msg) {
+          try {
+            var t = window.__TAURI_INTERNALS__;
+            var label = (t && t.metadata && t.metadata.currentWindow && t.metadata.currentWindow.label) || '?';
+            if (t && t.invoke) t.invoke('debug_log', { label: label, level: 'error', message: msg });
+          } catch (e) {}
+        }
+        window.addEventListener('error', function (e) {
+          if (window.__debugReady) return;
+          var where = e.filename ? ' @' + e.filename + ':' + e.lineno : '';
+          var res = e.target && e.target.src ? ' (読み込めない: ' + e.target.src + ')' : '';
+          send('起動前のエラー: ' + (e.message || 'script error') + where + res);
+        }, true);
+        window.addEventListener('unhandledrejection', function (e) {
+          if (window.__debugReady) return;
+          send('起動前の Promise 拒否: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+        });
+      })();
+    </script>
+
     <!-- 設定モーダル -->
     <div id="settings-modal" class="settings-modal">
       <div class="settings-panel">
@@ -139,15 +206,22 @@
         <div id="panel-monitor-label" style="font-size: 0.75rem; color: #00ffff99; margin: -4px 0 14px; word-break: break-all;"></div>
 
         <!-- 共通設定（main のパネルだけに表示） -->
-        <div id="global-section">
-
+        <!-- このモニターの画像フォルダ（全モニターのパネルに表示） -->
         <div class="setting-group">
-          <label>画像フォルダパス</label>
-          <div class="path-row">
-            <input type="text" id="input-path" placeholder="フォルダパスを入力..." />
-            <button id="browse-btn">参照</button>
-          </div>
+          <label>このモニターの画像フォルダ</label>
+          <select id="select-folder"></select>
         </div>
+
+        <div id="global-section">
+          <div class="setting-group">
+            <label>画像フォルダのリスト（名前を付けて登録。全モニター共通）</label>
+            <div id="folder-rows"></div>
+            <button id="add-folder-btn" type="button" class="mini-btn">＋ フォルダを追加</button>
+          </div>
+          <div class="setting-group">
+            <label>共通の既定フォルダ（「共通の既定」を選んだモニターが使う）</label>
+            <select id="select-default-folder"></select>
+          </div>
         </div>
         <!-- /共通設定 -->
 

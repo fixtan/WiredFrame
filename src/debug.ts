@@ -222,6 +222,8 @@ let initialized = false;
 export function initDebug() {
   if (initialized) return;
   initialized = true;
+  // index.html の起動前エラー用ハンドラは、ここから先は使わない（二重に出さない）
+  (window as unknown as { __debugReady?: boolean }).__debugReady = true;
 
   hookConsole();
   installErrorHandlers();

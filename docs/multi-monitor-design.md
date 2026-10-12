@@ -33,7 +33,8 @@
 ```ts
 // 共通（main の設定パネルだけに出す）
 type GlobalSettings = {
-  targetDir: string;     // 画像フォルダ。仮定：共通のまま。モニター別にしたくなったら monitor 側に上書きを足す
+  // 2026-10-12 作業 D で変更: targetDir は廃止。folders / defaultFolderId（共通）+ folderId（モニター別。''=共通の既定）。
+  // targetDir は AppSettings 上の派生値（resolveFolder で導出）
   multiMonitor: boolean;
 };
 

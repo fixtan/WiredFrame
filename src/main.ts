@@ -7,6 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initDebug, dlog, dwarn, derr } from './debug';
 import {
   type AppSettings,
+  type FolderEntry,
   type GlobalSettings,
   type MonitorSettings,
   DEFAULT_MONITOR,
@@ -17,6 +18,8 @@ import {
   DEFAULT_GLOBAL,
   SETTINGS_CHANGED_EVENT,
   loadGlobal,
+  resolveFolder,
+  newFolderId,
   loadEffectiveSettings,
   resolveMonitorKey,
   saveGlobal,
@@ -37,8 +40,10 @@ if (appContainer) {
   const closeBtn = document.getElementById('close-settings');
   const saveBtn = document.getElementById('save-settings');
   const resetBtn = document.getElementById('reset-settings');
-  const browseBtn = document.getElementById('browse-btn');
-  const pathInput = document.getElementById('input-path') as HTMLInputElement;
+  const folderSelect = document.getElementById('select-folder') as HTMLSelectElement;
+  const folderRows = document.getElementById('folder-rows') as HTMLElement;
+  const addFolderBtn = document.getElementById('add-folder-btn');
+  const defaultFolderSelect = document.getElementById('select-default-folder') as HTMLSelectElement;
   const intervalInput = document.getElementById('input-interval') as HTMLInputElement;
 
   const playModeSelect = document.getElementById('select-play-mode') as HTMLSelectElement;
@@ -85,12 +90,19 @@ if (appContainer) {
   let dirty = false;
   // main のパネルを開いた時点の共通設定（保存時に変わったかを見る）
   let globalAtOpen = loadGlobal();
+  // 直近に TileMode へ読ませた画像フォルダのパス（変わったときだけ読み直す）
+  let lastDir: string | null = null;
+  // パネルで編集中の画像フォルダのリストと既定（main だけが編集する。保存するまで反映しない）
+  let draftFolders: FolderEntry[] = [];
+  let draftDefaultId = '';
 
   const isPanelOpen = () => settingsModal?.classList.contains('open') ?? false;
 
   // ⚙ 設定をフォームに入れる（モニター別の欄は全ウィンドウ、共通の欄は main だけ使う）
   const fillForm = (settings: AppSettings) => {
-    pathInput.value = settings.targetDir;
+    draftFolders = settings.folders.map((f) => ({ ...f }));
+    draftDefaultId = settings.defaultFolderId;
+    renderFolderUi(settings.folderId);
     intervalInput.value = settings.intervalSec.toString();
     playModeSelect.value = settings.playMode;
     fixedPatternSelect.value = settings.fixedPattern;
@@ -129,7 +141,9 @@ if (appContainer) {
       lastAppearance = appearanceKey;
       await tileMode.setAppearanceConfig(appearance);
     }
-    if (reloadDir) {
+    // 画像フォルダは、強制されたとき、またはこのモニターで使うフォルダが変わったときに読み直す
+    if (reloadDir || settings.targetDir !== lastDir) {
+      lastDir = settings.targetDir;
       await tileMode.updateImageDirectory(settings.targetDir);
     }
   };
@@ -234,6 +248,129 @@ if (appContainer) {
 
   // ---- 設定パネル（各ウィンドウが自分のモニター用に開く） ----------------------
 
+  // ---- 画像フォルダの UI ------------------------------------------------------
+
+  const basename = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+  const folderLabel = (f: FolderEntry) => f.name.trim() || basename(f.path) || '（未入力）';
+
+  /** プレビューで使う共通設定。main は編集中のリスト、サブは保存済みのリスト。 */
+  const currentGlobal = () => {
+    const g = loadGlobal();
+    return isMain ? { ...g, folders: draftFolders, defaultFolderId: draftDefaultId } : g;
+  };
+
+  /** 「このモニターの画像フォルダ」と「共通の既定」の選択肢を、リストの今の内容で作り直す。 */
+  const refreshFolderSelects = (selectedFolderId: string) => {
+    const usable = draftFolders.filter((f) => f.path.trim());
+    if (!usable.some((f) => f.id === draftDefaultId)) draftDefaultId = usable[0]?.id ?? '';
+
+    defaultFolderSelect.replaceChildren(
+      ...(usable.length
+        ? usable.map((f) => new Option(folderLabel(f), f.id))
+        : [new Option('（未登録）', '')]),
+    );
+    defaultFolderSelect.value = draftDefaultId;
+    defaultFolderSelect.disabled = usable.length === 0;
+
+    const def = usable.find((f) => f.id === draftDefaultId);
+    folderSelect.replaceChildren(
+      new Option(`共通の既定（${def ? folderLabel(def) : '未設定'}）`, ''),
+      ...usable.map((f) => new Option(folderLabel(f), f.id)),
+    );
+    folderSelect.value = usable.some((f) => f.id === selectedFolderId) ? selectedFolderId : '';
+  };
+
+  /** フォルダの UI を作り直す（main は一覧の行も）。`selectedFolderId` はこのモニターの選択。 */
+  const renderFolderUi = (selectedFolderId: string) => {
+    if (isMain) {
+      folderRows.replaceChildren();
+      if (draftFolders.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'folder-empty';
+        hint.textContent = '画像フォルダが未登録です。「＋ フォルダを追加」から登録してください（未登録の間は代わりの画像を表示します）';
+        folderRows.append(hint);
+      }
+      for (const f of draftFolders) {
+        const row = document.createElement('div');
+        row.className = 'folder-row';
+
+        const name = document.createElement('input');
+        name.type = 'text';
+        name.className = 'f-name';
+        name.placeholder = '名前';
+        name.value = f.name;
+        name.addEventListener('input', () => {
+          f.name = name.value;
+          refreshFolderSelects(folderSelect.value);
+        });
+
+        const path = document.createElement('input');
+        path.type = 'text';
+        path.className = 'f-path';
+        path.placeholder = 'フォルダのパス';
+        path.value = f.path;
+        path.addEventListener('input', () => {
+          f.path = path.value;
+          refreshFolderSelects(folderSelect.value);
+          schedulePreview();
+        });
+
+        const browse = document.createElement('button');
+        browse.type = 'button';
+        browse.textContent = '参照';
+        browse.addEventListener('click', async () => {
+          try {
+            const selected = await open({ directory: true, multiple: false, defaultPath: f.path || undefined });
+            if (selected && typeof selected === 'string') {
+              f.path = selected;
+              path.value = selected;
+              if (!f.name.trim()) {
+                f.name = basename(selected);
+                name.value = f.name;
+              }
+              refreshFolderSelects(folderSelect.value);
+              schedulePreview();
+            }
+          } catch (err) {
+            console.error('フォルダ選択エラー:', err);
+          }
+        });
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'f-del';
+        del.textContent = '×';
+        del.title = 'リストから削除';
+        del.addEventListener('click', () => {
+          draftFolders = draftFolders.filter((x) => x.id !== f.id);
+          renderFolderUi(folderSelect.value);
+          schedulePreview();
+        });
+
+        row.append(name, path, browse, del);
+        folderRows.append(row);
+      }
+    }
+    refreshFolderSelects(selectedFolderId);
+  };
+
+  addFolderBtn?.addEventListener('click', () => {
+    draftFolders.push({ id: newFolderId(draftFolders), name: '', path: '' });
+    renderFolderUi(folderSelect.value);
+    (folderRows.querySelector('.folder-row:last-of-type input.f-path') as HTMLInputElement | null)?.focus();
+  });
+  defaultFolderSelect?.addEventListener('change', () => {
+    draftDefaultId = defaultFolderSelect.value;
+    refreshFolderSelects(folderSelect.value);
+    schedulePreview();
+  });
+
+  /** 保存用にリストを整える：パスが空の行は捨て、名前が空ならフォルダ名にする。 */
+  const cleanFolders = (list: FolderEntry[]): FolderEntry[] =>
+    list
+      .filter((f) => f.path.trim())
+      .map((f) => ({ id: f.id, path: f.path.trim(), name: f.name.trim() || basename(f.path.trim()) }));
+
   /** フォームからモニター別の設定を読む。strict=true で不正な値があれば null（プレビュー用）。 */
   const readMonitorForm = (strict: boolean): MonitorSettings | null => {
     const num = (el: HTMLInputElement, def: number, positive = true): number | null => {
@@ -257,6 +394,7 @@ if (appContainer) {
       intervalSec,
       playMode: playModeSelect.value,
       fixedPattern: fixedPatternSelect.value,
+      folderId: folderSelect.value,
       tileSize,
       spacingX,
       spacingY,
@@ -276,10 +414,13 @@ if (appContainer) {
       const m = readMonitorForm(true);
       if (!m) return; // 入力途中の不正な値は反映しない
       dirty = true;
-      void enqueue('プレビュー', () => applyToTileMode({ ...loadGlobal(), ...m }, false));
+      // main は編集中のリストで、サブは保存済みのリストで、このモニターのフォルダを決める
+      const g = currentGlobal();
+      const dir = resolveFolder(g, m.folderId).folder?.path ?? '';
+      void enqueue('プレビュー', () => applyToTileMode({ ...g, ...m, targetDir: dir }, false));
     }, 400);
   };
-  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, bgColorInput, bgImageInput]) {
+  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, bgColorInput, bgImageInput]) {
     el?.addEventListener('input', schedulePreview);
     el?.addEventListener('change', schedulePreview);
   }
@@ -301,6 +442,8 @@ if (appContainer) {
   const closePanel = async (revert: boolean, broadcast: boolean) => {
     window.clearTimeout(previewTimer);
     settingsModal?.classList.remove('open');
+    // 非表示になった欄にフォーカスが残ると、ESC などのキーを奪うので外す
+    (document.activeElement as HTMLElement | null)?.blur();
     if (revert && dirty) await loadAndApply('revert', false);
     dirty = false;
     if (broadcast) {
@@ -362,22 +505,6 @@ if (appContainer) {
     hotkeyInput.value = [...mods, key].join('+');
   });
 
-  // 📁 フォルダ参照
-  browseBtn?.addEventListener('click', async () => {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        defaultPath: pathInput.value || undefined,
-      });
-      if (selected && typeof selected === 'string') {
-        pathInput.value = selected;
-      }
-    } catch (err) {
-      console.error('フォルダ選択エラー:', err);
-    }
-  });
-
   // 🖼️ 背景画像参照
   browseBgBtn?.addEventListener('click', async () => {
     try {
@@ -408,8 +535,10 @@ if (appContainer) {
     let multiChanged = false;
     if (isMain) {
       const minutes = Number(idleMinutesInput.value);
+      const folders = cleanFolders(draftFolders);
       const g: GlobalSettings = {
-        targetDir: pathInput.value,
+        folders,
+        defaultFolderId: folders.some((f) => f.id === draftDefaultId) ? draftDefaultId : (folders[0]?.id ?? ''),
         multiMonitor: multiMonitorInput.checked,
         hotkey: hotkeyInput.value.trim(),
         idleEnabled: idleEnabledInput.checked,
@@ -420,7 +549,8 @@ if (appContainer) {
       };
       saveGlobal(g);
       multiChanged = g.multiMonitor !== globalAtOpen.multiMonitor;
-      globalChanged = g.targetDir !== globalAtOpen.targetDir || multiChanged;
+      const foldersKey = (x: GlobalSettings) => JSON.stringify([x.folders, x.defaultFolderId]);
+      globalChanged = foldersKey(g) !== foldersKey(globalAtOpen) || multiChanged;
     }
 
     // プレビュー済みの内容と保存内容が違う（不正値の補正など）場合に備えて、保存値を適用し直す

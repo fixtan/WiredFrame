@@ -34,7 +34,7 @@ export class TileMode implements IMode {
   private buildGen = 0;
   private bgColor: string = '#000000';
   private bgImagePath: string = '';
-  private currentDir: string = "D:/[DATA]/[★画像]/[★壁紙]/ご注文はうさぎですか？/横";
+  private currentDir: string = '';
 
   // --- アニメーションパターン管理 ---
   private patternIndex = 0;
@@ -119,18 +119,23 @@ export class TileMode implements IMode {
     }
   }
 
-  // 画像フォルダを再読み込み
+  // 画像フォルダを読み直してタイルを作り直す。
+  // 空文字・読めないフォルダ・画像が 0 枚のフォルダは、前の画像を引きずらず、代わりの画像にする
+  // （モニターごとにフォルダが違うので、前の画像が残ると別のモニターの設定が混ざって見える）
   async updateImageDirectory(newDir: string) {
+    this.currentDir = newDir;
+    this.imagePaths = [];
     if (newDir) {
-      this.currentDir = newDir;
-    }
-    try {
-      const files = await invoke<string[]>('get_images_from_dir', { dirPath: this.currentDir });
-      if (files && files.length > 0) {
-        this.imagePaths = files;
+      try {
+        const files = await invoke<string[]>('get_images_from_dir', { dirPath: newDir });
+        if (files && files.length > 0) {
+          this.imagePaths = files;
+        } else {
+          console.warn(`画像フォルダに画像が無い: ${newDir}`);
+        }
+      } catch (e) {
+        console.warn(`画像フォルダを読めない: ${newDir}`, e);
       }
-    } catch (e) {
-      console.warn("新しいフォルダの読み込みに失敗しました。", e);
     }
 
     await this.rebuildTiles();
@@ -138,17 +143,6 @@ export class TileMode implements IMode {
 
   // 🆕 タイル群の生成・再構築処理
   private async rebuildTiles() {
-    if (this.imagePaths.length === 0) {
-      try {
-        const files = await invoke<string[]>('get_images_from_dir', { dirPath: this.currentDir });
-        if (files && files.length > 0) {
-          this.imagePaths = files;
-        }
-      } catch (e) {
-        // フォールバック
-      }
-    }
-
     if (this.imagePaths.length === 0) {
       this.imagePaths = [
         'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600',
