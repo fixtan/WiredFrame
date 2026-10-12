@@ -1,5 +1,6 @@
 mod debug;
 mod monitors;
+mod saver;
 
 use std::fs;
 use std::path::Path;
@@ -7,7 +8,7 @@ use std::path::Path;
 // タスクトレイ
 use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem};
-use tauri::{Manager, Emitter, WebviewUrl, WebviewWindowBuilder, PhysicalPosition, PhysicalSize};
+use tauri::{Manager, Emitter};
 
 // フロントエンドから呼び出せるRustコマンド
 #[tauri::command]
@@ -39,7 +40,7 @@ fn get_images_from_dir(dir_path: String) -> Result<Vec<String>, String> {
 }
 
 // 失敗したら握りつぶさずにログへ出す（以前は `let _ =` で捨てていた）
-fn log_if_err(label: &str, what: &str, result: tauri::Result<()>) {
+pub(crate) fn log_if_err(label: &str, what: &str, result: tauri::Result<()>) {
     if let Err(e) = result {
         debug::log("rust", "error", &format!("{}: {} に失敗: {}", label, what, e));
     }
@@ -61,101 +62,6 @@ fn set_fullscreen_all(app: tauri::AppHandle, fullscreen: bool) -> Result<(), Str
 }
 
 
-// 🖥️ サブモニターのウィンドウ（sub-monitor-*）をすべて閉じる。閉じた枚数を返す
-#[tauri::command]
-async fn close_sub_monitors(app: tauri::AppHandle) -> Result<usize, String> {
-    let mut n = 0;
-    for (label, window) in app.webview_windows() {
-        if label.starts_with("sub-monitor-") {
-            log_if_err(&label, "destroy", window.destroy());
-            n += 1;
-        }
-    }
-    debug::log("rust", "info", &format!("close_sub_monitors: {} 枚閉じた", n));
-    Ok(n)
-}
-
-// 🖥️ Rust側でサブモニター用のウィンドウを正確な物理座標で生成し、フルスクリーン化する
-#[tauri::command]
-async fn open_sub_monitors(app: tauri::AppHandle) -> Result<(), String> {
-    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
-    let main_monitor = app
-        .get_webview_window("main")
-        .and_then(|w| w.current_monitor().ok().flatten());
-    let main_pos = main_monitor.as_ref().map(|m| *m.position());
-
-    match &main_monitor {
-        Some(m) => debug::log(
-            "rust",
-            "info",
-            &format!(
-                "open_sub_monitors: main は pos=({},{}) のモニター上。ここは除外する",
-                m.position().x,
-                m.position().y
-            ),
-        ),
-        None => debug::log(
-            "rust",
-            "warn",
-            "open_sub_monitors: main のモニターを特定できない。どのモニターも除外されず、main と同じモニターにもサブウィンドウができる",
-        ),
-    }
-    monitors::log_all(&app, "open_sub_monitors");
-
-    for (i, m) in monitors.iter().enumerate() {
-        // メインウィンドウが存在するモニターは除外
-        if Some(*m.position()) == main_pos {
-            debug::log("rust", "info", &format!("open_sub_monitors: #{} は main のモニターなのでスキップ", i));
-            continue;
-        }
-
-        let label = format!("sub-monitor-{}", i);
-        // すでに存在していればスキップ
-        if app.get_webview_window(&label).is_some() {
-            debug::log("rust", "info", &format!("open_sub_monitors: {} は作成済みなのでスキップ", label));
-            continue;
-        }
-
-        // まずは非表示（visible: false）でウィンドウをビルド（位置ズレを防ぐため）
-        let w = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-            .decorations(false)
-            .resizable(false)
-            .visible(false)
-            .build()
-            .map_err(|e| {
-                let msg = format!("{} の作成に失敗: {}", label, e);
-                debug::log("rust", "error", &msg);
-                msg
-            })?;
-
-        // 物理ピクセル座標とサイズを正確に設定
-        log_if_err(&label, "set_position", w.set_position(PhysicalPosition::new(m.position().x, m.position().y)));
-        log_if_err(&label, "set_size", w.set_size(PhysicalSize::new(m.size().width, m.size().height)));
-
-        // 表示させてからフルスクリーン化
-        log_if_err(&label, "show", w.show());
-        log_if_err(&label, "set_fullscreen", w.set_fullscreen(true));
-
-        debug::log(
-            "rust",
-            "info",
-            &format!(
-                "open_sub_monitors: {} を作成（モニター #{} {:?} pos=({},{}) size={}x{}）",
-                label,
-                i,
-                m.name(),
-                m.position().x,
-                m.position().y,
-                m.size().width,
-                m.size().height
-            ),
-        );
-    }
-    Ok(())
-}
-
-
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     debug::init();
@@ -165,8 +71,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_images_from_dir,
             set_fullscreen_all,
-            open_sub_monitors,
-            close_sub_monitors,
+            saver::open_sub_monitors,
+            saver::close_sub_monitors,
+            saver::start_saver,
+            saver::stop_saver,
+            saver::saver_state,
+            saver::set_saver_config,
             debug::debug_log,
             monitors::list_monitors,
             monitors::current_monitor_info
@@ -182,9 +92,10 @@ pub fn run() {
             // トレイメニューの作成（「設定」「デバッグ表示」「終了」）
             let settings_item = MenuItem::with_id(app, "settings", "設定", true, None::<String>)?;
             let debug_item = MenuItem::with_id(app, "debug-overlay", "デバッグ表示", true, None::<String>)?;
+            let start_item = MenuItem::with_id(app, "start-saver", "スクリーンセーバーを起動", true, None::<String>)?;
             let reexpand_item = MenuItem::with_id(app, "reexpand", "モニターを再展開", true, None::<String>)?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<String>)?;
-            let menu = Menu::with_items(app, &[&settings_item, &reexpand_item, &debug_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&start_item, &settings_item, &reexpand_item, &debug_item, &quit_item])?;
 
             // トレイアイコンの構築
             let _tray = TrayIconBuilder::new()
@@ -193,11 +104,25 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
+                        // トレイのイベントはメインスレッドで動く。Windows ではそこでウィンドウを
+                        // 作ると固まることがあるので、別タスクで実行する
+                        "start-saver" => {
+                            let app = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                saver::start(&app, "tray", false);
+                            });
+                        }
                         "settings" => {
-                            // 全ウィンドウに配信。各モニターが自分用の設定パネルを開く
-                            if let Err(e) = app.emit("open-settings", ()) {
-                                debug::log("rust", "error", &format!("open-settings の配信に失敗: {}", e));
-                            }
+                            let app = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                // 動いていなければ、設定モードで起動する（全モニターに映してパネルを出すため）。
+                                // サブウィンドウは起動時に自分で「設定モードか」を確認してパネルを開く
+                                saver::start(&app, "tray-settings", true);
+                                // 全ウィンドウに配信。各モニターが自分用の設定パネルを開く
+                                if let Err(e) = app.emit("open-settings", ()) {
+                                    debug::log("rust", "error", &format!("open-settings の配信に失敗: {}", e));
+                                }
+                            });
                         }
                         "reexpand" => {
                             // main がサブモニターを閉じて開き直す

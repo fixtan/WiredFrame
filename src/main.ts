@@ -3,8 +3,7 @@ import { TileMode } from './modes/TileMode';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
-import { getCurrentWindow, availableMonitors } from '@tauri-apps/api/window';
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initDebug, dlog, derr } from './debug';
 import {
   type AppSettings,
@@ -125,11 +124,20 @@ if (appContainer) {
     }
   };
 
+  // セーバーの起動に必要な設定を Rust に渡す（Rust だけで起動できるように）。main だけが渡す
+  type SaverState = { running: boolean; settingsMode: boolean };
+  const pushSaverConfig = (s: AppSettings) => {
+    invoke('set_saver_config', { config: { multiMonitor: s.multiMonitor } }).catch((e) =>
+      derr('set_saver_config に失敗:', e),
+    );
+  };
+
   // 🚀 保存された設定を読み直して、フォームと画面に適用する
   const loadAndApply = (reason: string, reloadDir = true) =>
     enqueue(`設定の適用 (${reason})`, async () => {
       const settings = loadEffectiveSettings(myMonitorKey, reason);
       fillForm(settings);
+      if (isMain) pushSaverConfig(settings);
       await applyToTileMode(settings, reloadDir);
       dirty = false;
     });
@@ -137,15 +145,30 @@ if (appContainer) {
   (async () => {
     myMonitorKey = await resolveMonitorKey();
     await loadAndApply('boot');
+    // 「設定」で起動したセーバーのサブウィンドウは、起動時にパネルを開く（open-settings に間に合わないため）
+    if (!isMain) {
+      try {
+        const st = await invoke<SaverState>('saver_state');
+        if (st.settingsMode) queueMicrotask(() => openPanel());
+      } catch (e) {
+        derr('saver_state の取得に失敗:', e);
+      }
+    }
   })();
+
+  // セーバーが起動した（main だけが受け取る）。画像フォルダの変更を拾うため、設定を読み直す
+  listen('saver-started', (ev) => {
+    dlog(`セーバー起動 (${String(ev.payload)})`);
+    if (!isPanelOpen()) void loadAndApply('saver-started');
+  }).catch((e) => derr('saver-started の購読に失敗:', e));
+  listen('saver-stopped', (ev) => dlog(`セーバー終了 (${String(ev.payload)})`)).catch((e) =>
+    derr('saver-stopped の購読に失敗:', e),
+  );
 
   // 共通設定（画像フォルダなど）が保存されたら、全ウィンドウが読み直して適用する
   listen(SETTINGS_CHANGED_EVENT, () => {
     void loadAndApply(SETTINGS_CHANGED_EVENT);
   }).catch((e) => derr(`${SETTINGS_CHANGED_EVENT} の購読に失敗:`, e));
-
-  // 🖥️ マルチモニター対応の展開を実行
-  initMultiMonitor();
 
   // 🖥️ サブモニターを閉じて開き直す（ON/OFF の即時反映・構成変更・手動の再展開で共通）。
   // マルチモニターが OFF なら、閉じるだけ。
@@ -187,25 +210,6 @@ if (appContainer) {
   listen('reexpand-monitors', () => void reexpandSubMonitors('tray')).catch((e) =>
     derr('reexpand-monitors の購読に失敗:', e),
   );
-
-  // 🖥️ マルチモニター自動展開の初期化関数（Rust側に委譲）
-  async function initMultiMonitor() {
-    try {
-      // メインウィンドウ以外では実行しない
-      if (!isMain) return;
-
-      // 設定でマルチモニターが無効なら展開しない
-      if (!loadGlobal().multiMonitor) {
-        dlog('シングルウィンドウモードで動作します');
-        return;
-      }
-
-      dlog('Rust側でマルチモニターウィンドウを展開します...');
-      await invoke('open_sub_monitors');
-    } catch (err) {
-      console.error('マルチモニター初期化エラー:', err);
-    }
-  }
 
   // ---- 設定パネル（各ウィンドウが自分のモニター用に開く） ----------------------
 
@@ -283,6 +287,13 @@ if (appContainer) {
         await emit('close-settings');
       } catch (e) {
         derr('close-settings の配信に失敗:', e);
+      }
+      // 「設定」のために起動したセーバーは、設定を閉じたら終了する
+      try {
+        const st = await invoke<SaverState>('saver_state');
+        if (st.settingsMode) await invoke('stop_saver', { reason: 'settings-closed' });
+      } catch (e) {
+        derr('設定モードの終了に失敗:', e);
       }
     }
   };
@@ -378,29 +389,13 @@ if (appContainer) {
     }
   });
 
-  const appWin = getCurrentWindow();
-
-  // 🖥️ F11キーでRust経由全ウィンドウ連動のフルスクリーン切替、Escで解除
+  // ⎋ ESC でセーバーを終了する（どのウィンドウでも）。設定パネルが開いている間は無視する
   window.addEventListener('keydown', async (e) => {
-    if (e.key === 'F11') {
-      e.preventDefault();
-      try {
-        const isFs = await appWin.isFullscreen();
-        const nextState = !isFs;
-
-        // Rust側コマンドを呼び出して、全モニターのウィンドウを一括フルスクリーン切替
-        await invoke('set_fullscreen_all', { fullscreen: nextState });
-      } catch (err) {
-        console.error('フルスクリーン切替エラー:', err);
-      }
-    } else if (e.key === 'Escape') {
-      try {
-        if (await appWin.isFullscreen()) {
-          await invoke('set_fullscreen_all', { fullscreen: false });
-        }
-      } catch (err) {
-        console.error('フルスクリーン解除エラー:', err);
-      }
+    if (e.key !== 'Escape' || isPanelOpen()) return;
+    try {
+      await invoke('stop_saver', { reason: 'esc' });
+    } catch (err) {
+      derr('stop_saver に失敗:', err);
     }
   });
 }
