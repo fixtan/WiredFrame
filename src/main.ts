@@ -147,6 +147,47 @@ if (appContainer) {
   // 🖥️ マルチモニター対応の展開を実行
   initMultiMonitor();
 
+  // 🖥️ サブモニターを閉じて開き直す（ON/OFF の即時反映・構成変更・手動の再展開で共通）。
+  // マルチモニターが OFF なら、閉じるだけ。
+  let reexpanding = false;
+  const reexpandSubMonitors = async (reason: string) => {
+    if (!isMain) return;
+    if (reexpanding) {
+      dlog(`サブモニターの再展開は実行中なのでスキップ (${reason})`);
+      return;
+    }
+    reexpanding = true;
+    try {
+      const closed = await invoke<number>('close_sub_monitors');
+      dlog(`サブモニターを閉じた: ${closed} 枚 (${reason})`);
+      if (loadGlobal().multiMonitor) {
+        // 閉じたウィンドウのラベルが解放されるのを少し待ってから作り直す
+        await new Promise((r) => setTimeout(r, 500));
+        await invoke('open_sub_monitors');
+        dlog(`サブモニターを展開した (${reason})`);
+      }
+    } catch (e) {
+      derr(`サブモニターの再展開に失敗 (${reason}):`, e);
+    } finally {
+      reexpanding = false;
+    }
+  };
+
+  // モニター構成が変わった（Rust が見張っている）。マルチモニター ON のときだけ展開し直す
+  listen('monitors-changed', () => {
+    if (!isMain) return;
+    if (!loadGlobal().multiMonitor) {
+      dlog('モニター構成が変わったが、マルチモニターは OFF なので何もしない');
+      return;
+    }
+    void reexpandSubMonitors('monitors-changed');
+  }).catch((e) => derr('monitors-changed の購読に失敗:', e));
+
+  // トレイの「モニターを再展開」
+  listen('reexpand-monitors', () => void reexpandSubMonitors('tray')).catch((e) =>
+    derr('reexpand-monitors の購読に失敗:', e),
+  );
+
   // 🖥️ マルチモニター自動展開の初期化関数（Rust側に委譲）
   async function initMultiMonitor() {
     try {
@@ -301,10 +342,12 @@ if (appContainer) {
     saveMonitor(myMonitorKey, m);
 
     let globalChanged = false;
+    let multiChanged = false;
     if (isMain) {
       const g: GlobalSettings = { targetDir: pathInput.value, multiMonitor: multiMonitorInput.checked };
       saveGlobal(g);
-      globalChanged = g.targetDir !== globalAtOpen.targetDir || g.multiMonitor !== globalAtOpen.multiMonitor;
+      multiChanged = g.multiMonitor !== globalAtOpen.multiMonitor;
+      globalChanged = g.targetDir !== globalAtOpen.targetDir || multiChanged;
     }
 
     // プレビュー済みの内容と保存内容が違う（不正値の補正など）場合に備えて、保存値を適用し直す
@@ -321,6 +364,9 @@ if (appContainer) {
       }
     }
     await closePanel(false, isMain);
+
+    // マルチモニターの ON/OFF が変わったら、すぐサブモニターを開く／閉じる
+    if (multiChanged) await reexpandSubMonitors('multiMonitor changed');
   });
 
   // 🔄 このモニターの専用設定を消して、既定値に戻す

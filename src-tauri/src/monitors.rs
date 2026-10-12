@@ -51,6 +51,45 @@ fn to_info(index: usize, m: &Monitor, primary: Option<&Monitor>) -> MonitorInfo 
     }
 }
 
+/// モニター構成の「指紋」。名前・位置・サイズを並べ替えて連結する（列挙順が変わっても同じになる）。
+fn signature(app: &AppHandle) -> Option<String> {
+    let mut v: Vec<String> = collect(app)
+        .ok()?
+        .iter()
+        .map(|m| format!("{}|{},{}|{}x{}", m.name.as_deref().unwrap_or("?"), m.x, m.y, m.width, m.height))
+        .collect();
+    v.sort();
+    Some(v.join(";"))
+}
+
+/// モニター構成の変化を見張る（別スレッドで動かす）。
+/// 3 秒おきに調べ、同じ変化を 2 回続けて見たときだけ `monitors-changed` を main に送る
+/// （抜き差しの途中で何度も構成が変わるのに反応しないため）。
+pub fn watch(app: AppHandle) {
+    use tauri::Emitter;
+    let mut baseline = signature(&app);
+    let mut candidate: Option<String> = None;
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let now = signature(&app);
+        if now.is_none() || now == baseline {
+            candidate = None;
+            continue;
+        }
+        if now == candidate {
+            debug::log("rust", "info", "モニター構成が変わった。monitors-changed を main に送る");
+            log_all(&app, "monitors-changed");
+            baseline = now;
+            candidate = None;
+            if let Err(e) = app.emit_to("main", "monitors-changed", ()) {
+                debug::log("rust", "error", &format!("monitors-changed の配信に失敗: {}", e));
+            }
+        } else {
+            candidate = now;
+        }
+    }
+}
+
 /// 接続中の全モニターを列挙順で返す。
 pub fn collect(app: &AppHandle) -> Result<Vec<MonitorInfo>, String> {
     let monitors = app.available_monitors().map_err(|e| e.to_string())?;

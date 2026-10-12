@@ -61,6 +61,20 @@ fn set_fullscreen_all(app: tauri::AppHandle, fullscreen: bool) -> Result<(), Str
 }
 
 
+// 🖥️ サブモニターのウィンドウ（sub-monitor-*）をすべて閉じる。閉じた枚数を返す
+#[tauri::command]
+async fn close_sub_monitors(app: tauri::AppHandle) -> Result<usize, String> {
+    let mut n = 0;
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("sub-monitor-") {
+            log_if_err(&label, "destroy", window.destroy());
+            n += 1;
+        }
+    }
+    debug::log("rust", "info", &format!("close_sub_monitors: {} 枚閉じた", n));
+    Ok(n)
+}
+
 // 🖥️ Rust側でサブモニター用のウィンドウを正確な物理座標で生成し、フルスクリーン化する
 #[tauri::command]
 async fn open_sub_monitors(app: tauri::AppHandle) -> Result<(), String> {
@@ -152,6 +166,7 @@ pub fn run() {
             get_images_from_dir,
             set_fullscreen_all,
             open_sub_monitors,
+            close_sub_monitors,
             debug::debug_log,
             monitors::list_monitors,
             monitors::current_monitor_info
@@ -160,11 +175,16 @@ pub fn run() {
             // 起動時にモニター一覧をログへ（識別方法を決めるための材料）
             monitors::log_all(app.handle(), "startup");
 
+            // モニター構成の変化（抜き差し・配置変更）を見張る
+            let watch_handle = app.handle().clone();
+            std::thread::spawn(move || monitors::watch(watch_handle));
+
             // トレイメニューの作成（「設定」「デバッグ表示」「終了」）
             let settings_item = MenuItem::with_id(app, "settings", "設定", true, None::<String>)?;
             let debug_item = MenuItem::with_id(app, "debug-overlay", "デバッグ表示", true, None::<String>)?;
+            let reexpand_item = MenuItem::with_id(app, "reexpand", "モニターを再展開", true, None::<String>)?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<String>)?;
-            let menu = Menu::with_items(app, &[&settings_item, &debug_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&settings_item, &reexpand_item, &debug_item, &quit_item])?;
 
             // トレイアイコンの構築
             let _tray = TrayIconBuilder::new()
@@ -177,6 +197,12 @@ pub fn run() {
                             // 全ウィンドウに配信。各モニターが自分用の設定パネルを開く
                             if let Err(e) = app.emit("open-settings", ()) {
                                 debug::log("rust", "error", &format!("open-settings の配信に失敗: {}", e));
+                            }
+                        }
+                        "reexpand" => {
+                            // main がサブモニターを閉じて開き直す
+                            if let Err(e) = app.emit_to("main", "reexpand-monitors", ()) {
+                                debug::log("rust", "error", &format!("reexpand-monitors の配信に失敗: {}", e));
                             }
                         }
                         "debug-overlay" => {
