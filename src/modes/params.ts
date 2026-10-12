@@ -70,7 +70,7 @@ export const NOISE4_PARAMS: ParamDef[] = [
   { key: 'noiseScale', label: '模様の細かさ', min: 0.1, max: 10, step: 0.1, default: 1.5 },
   { key: 'warp', label: '歪みの強さ', min: 0, max: 3, step: 0.1, default: 0.5 },
   { key: 'speed', label: '動く速さ', min: 0, max: 4, step: 0.1, default: 1 },
-  { key: 'pulse', label: '脈動の強さ（0 でオフ）', min: 0, max: 2, step: 0.05, default: 0.0 },
+  { key: 'pulse', label: '脈動の強さ（0 でオフ）', min: 0, max: 2, step: 0.05, default: 0 },
   { key: 'bpm', label: '脈動の速さ（1 分あたりの拍数）', min: 20, max: 180, step: 1, default: 60 },
   { key: 'glow', label: '脈動で光る強さ', min: 0, max: 2, step: 0.02, default: 0.22 },
   { key: 'hue', label: '光る色（色相 0〜360。0 が赤）', min: 0, max: 360, step: 1, default: 0 },
@@ -80,12 +80,30 @@ export const NOISE4_PARAMS: ParamDef[] = [
   { key: 'baseLight', label: '暗い所の明るさ（ほぼ黒）', min: 0, max: 0.3, step: 0.005, default: 0.025 },
 ];
 
+export const NOISE5_PARAMS: ParamDef[] = [
+  { key: 'renderScale', label: '描画の解像度（小さいほど軽い。細い線が点々になる）', min: 0.25, max: 1, step: 0.05, default: 0.75 },
+  { key: 'aberration', label: '色収差（0 でオフ。オフだと 3 倍近く軽い）', min: 0, max: 0.1, step: 0.005, default: 0.02 },
+  { key: 'speed', label: '動く速さ', min: 0, max: 4, step: 0.1, default: 1 },
+  { key: 'scale', label: '文字の細かさ', min: 2, max: 40, step: 1, default: 20 },
+  { key: 'polar', label: '魔法陣らしさ（1 で同心円、0 で平面）', min: 0, max: 1, step: 0.01, default: 1 },
+  { key: 'rings', label: 'リングの細かさ', min: 0, max: 50, step: 1, default: 20 },
+  { key: 'erosion', label: '欠け具合（大きいほどかすれる）', min: -0.5, max: 1, step: 0.05, default: 0.3 },
+  { key: 'thickness', label: '線の太さ', min: 0.01, max: 0.2, step: 0.01, default: 0.04 },
+  { key: 'glow', label: '発光のにじみ', min: 0.1, max: 1, step: 0.05, default: 0.35 },
+  { key: 'hue', label: '光る色（色相 0〜360）', min: 0, max: 360, step: 1, default: 168 },
+  { key: 'colorCycle', label: '色が一周する秒数（0 で固定）', min: 0, max: 600, step: 10, default: 0 },
+  { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 1 },
+  { key: 'glowLight', label: '光る色の明るさ', min: 0.1, max: 0.8, step: 0.01, default: 0.5 },
+  { key: 'coreTint', label: '線の芯の色（0 で白、1 で光る色）', min: 0, max: 1, step: 0.05, default: 0 },
+];
+
 /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
 export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise1: NOISE1_PARAMS,
   noise2: NOISE2_PARAMS,
   noise3: NOISE3_PARAMS,
   noise4: NOISE4_PARAMS,
+  noise5: NOISE5_PARAMS,
 };
 
 export function paramDefaults(defs: ParamDef[]): ParamValues {

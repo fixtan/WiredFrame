@@ -4,6 +4,7 @@ import { NoiseMode1 } from './modes/NoiseMode1';
 import { NoiseMode2 } from './modes/NoiseMode2';
 import { NoiseMode3 } from './modes/NoiseMode3';
 import { NoiseMode4 } from './modes/NoiseMode4';
+import { NoiseMode5 } from './modes/NoiseMode5';
 import type { IMode } from './core/IMode';
 import { MODE_PARAMS, clampParams, paramDefaults, type ParamValues } from './modes/params';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -36,12 +37,21 @@ import {
 // デバッグ基盤（ログ転送・エラー捕捉・F2オーバーレイ）。他の処理より前に初期化する
 initDebug();
 
+// ノイズ系モード（設定の mode 名 → 作り方）。新しいノイズはここに 1 行足す
+const NOISE_MODES: Record<string, (s: AppSettings) => IMode> = {
+  noise1: (s) => new NoiseMode1(s.noiseSize),
+  noise2: () => new NoiseMode2(),
+  noise3: () => new NoiseMode3(),
+  noise4: () => new NoiseMode4(),
+  noise5: () => new NoiseMode5(),
+};
+
 const appContainer = document.querySelector('#app') as HTMLElement;
 if (appContainer) {
   const manager = new AppManager(appContainer);
   // 表示モード。切り替えるときは作り直す（tileMode / noiseMode のどちらかだけが生きている）
   let tileMode: TileMode | null = null;
-  let noiseMode: IMode | null = null; // ノイズ系（NoiseMode1〜4）
+  let noiseMode: IMode | null = null; // ノイズ系（NOISE_MODES）
   let currentModeKey = '';
   let currentNoiseSize = 0;
 
@@ -167,15 +177,9 @@ if (appContainer) {
       settings.mode !== currentModeKey || (settings.mode === 'noise1' && settings.noiseSize !== currentNoiseSize);
     if (needSwitch) {
       let next: IMode;
-      if (settings.mode === 'noise1' || settings.mode === 'noise2' || settings.mode === 'noise3' || settings.mode === 'noise4') {
-        noiseMode =
-          settings.mode === 'noise4'
-            ? new NoiseMode4()
-            : settings.mode === 'noise3'
-              ? new NoiseMode3()
-              : settings.mode === 'noise2'
-                ? new NoiseMode2()
-                : new NoiseMode1(settings.noiseSize);
+      const makeNoise = NOISE_MODES[settings.mode];
+      if (makeNoise) {
+        noiseMode = makeNoise(settings);
         tileMode = null;
         next = noiseMode;
       } else {
