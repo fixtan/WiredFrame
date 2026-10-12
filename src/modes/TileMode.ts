@@ -27,6 +27,11 @@ export class TileMode implements IMode {
   private tileSize: number = 2.0;
   private spacingX: number = 4.5;
   private spacingY: number = 2.8;
+  private cols: number = 10;
+  private rows: number = 6;
+  private fitGrid: boolean = false;
+  // タイル再構築の世代。古い世代のテクスチャ読み込みが完了しても使わない（解放済みのため）
+  private buildGen = 0;
   private bgColor: string = '#000000';
   private bgImagePath: string = '';
   private currentDir: string = "D:/[DATA]/[★画像]/[★壁紙]/ご注文はうさぎですか？/横";
@@ -75,12 +80,18 @@ export class TileMode implements IMode {
     tileSize: number;
     spacingX: number;
     spacingY: number;
+    cols: number;
+    rows: number;
+    fitGrid: boolean;
     bgColor: string;
     bgImagePath: string;
   }) {
     this.tileSize = config.tileSize;
     this.spacingX = config.spacingX;
     this.spacingY = config.spacingY;
+    this.cols = config.cols;
+    this.rows = config.rows;
+    this.fitGrid = config.fitGrid;
     this.bgColor = config.bgColor;
     this.bgImagePath = config.bgImagePath;
 
@@ -127,9 +138,6 @@ export class TileMode implements IMode {
 
   // 🆕 タイル群の生成・再構築処理
   private async rebuildTiles() {
-    // 既存のタイルをクリア
-    this.group.clear();
-
     if (this.imagePaths.length === 0) {
       try {
         const files = await invoke<string[]>('get_images_from_dir', { dirPath: this.currentDir });
@@ -148,9 +156,14 @@ export class TileMode implements IMode {
       ];
     }
 
-    const totalTiles = 60;
-    const cols = 10;
-    const rows = 6;
+    // ここから先は await を挟まない。既存のタイルを解放してクリアし、作り直す
+    // （await の前にクリアすると、並行して呼ばれたときにタイルが二重に作られる）
+    const gen = ++this.buildGen;
+    this.disposeTiles();
+
+    const cols = this.cols;
+    const rows = this.rows;
+    const totalTiles = cols * rows;
     const baseHeight = this.tileSize;
 
     for (let i = 0; i < totalTiles; i++) {
@@ -169,6 +182,10 @@ export class TileMode implements IMode {
       const mesh = new THREE.Mesh(geometry, material);
 
       this.textureLoader.load(imgUrl, (texture) => {
+        if (gen !== this.buildGen) {
+          texture.dispose(); // 読み込み中にタイルが作り直された
+          return;
+        }
         texture.generateMipmaps = true;
         texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.magFilter = THREE.LinearFilter;
@@ -202,6 +219,47 @@ export class TileMode implements IMode {
 
       this.group.add(mesh);
     }
+
+    // アニメーション側がグリッドの列数・行数を知るための情報
+    this.group.userData.cols = cols;
+    this.group.userData.rows = rows;
+
+    this.fitCamera();
+  }
+
+  /** グループ内のタイルを解放して空にする */
+  private disposeTiles() {
+    for (const child of [...this.group.children]) {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const mat = mesh.material as THREE.MeshBasicMaterial;
+      mat.map?.dispose();
+      mat.dispose();
+    }
+    this.group.clear();
+  }
+
+  /**
+   * カメラ距離を決める。fitGrid が OFF なら従来どおり 30。
+   * ON のときは、平面配置のグリッド全体が画面（縦・横どちらも）に収まる距離にする。
+   */
+  private fitCamera() {
+    if (!this.camera) return;
+    let z = 30;
+    if (this.fitGrid) {
+      const tanHalf = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      // タイルの幅は画像の縦横比で変わるので、横長（最大 1.6 倍）を見込む
+      const w = (this.cols - 1) * this.spacingX + this.tileSize * 1.6;
+      const h = (this.rows - 1) * this.spacingY + this.tileSize;
+      const zForH = h / 2 / tanHalf;
+      const zForW = w / 2 / (tanHalf * this.camera.aspect);
+      z = Math.max(zForH, zForW) * 1.05;
+    }
+    this.camera.position.set(0, 0, z);
+  }
+
+  onResize() {
+    this.fitCamera();
   }
 
   async init(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
@@ -310,6 +368,7 @@ export class TileMode implements IMode {
       this.controls.dispose();
     }
     this.scene.remove(this.group);
-    this.group.clear();
+    this.buildGen++;
+    this.disposeTiles();
   }
 }

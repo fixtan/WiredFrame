@@ -5,7 +5,7 @@ export function updateMatrixAnimation(
   time: number
 ) {
   group.rotation.y = 0;
-  const cols = 10;
+  const cols = (group.userData.cols as number) || 10;
 
   group.children.forEach((child, i) => {
     const col = i % cols;

@@ -8,13 +8,18 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { initDebug, dlog, derr } from './debug';
 import {
   type AppSettings,
+  type GlobalSettings,
+  type MonitorSettings,
+  DEFAULT_MONITOR,
+  GRID_MIN,
+  GRID_MAX,
   SETTINGS_CHANGED_EVENT,
   loadGlobal,
   loadEffectiveSettings,
   resolveMonitorKey,
   saveGlobal,
-  saveMonitorDefault,
-  resetSettings,
+  saveMonitor,
+  resetMonitor,
 } from './settings';
 
 // デバッグ基盤（ログ転送・エラー捕捉・F2オーバーレイ）。他の処理より前に初期化する
@@ -44,64 +49,97 @@ if (appContainer) {
   const tileSizeInput = document.getElementById('input-tile-size') as HTMLInputElement;
   const spacingXInput = document.getElementById('input-spacing-x') as HTMLInputElement;
   const spacingYInput = document.getElementById('input-spacing-y') as HTMLInputElement;
+  const colsInput = document.getElementById('input-cols') as HTMLInputElement;
+  const rowsInput = document.getElementById('input-rows') as HTMLInputElement;
+  const fitGridInput = document.getElementById('input-fit-grid') as HTMLInputElement;
   const bgColorInput = document.getElementById('input-bg-color') as HTMLInputElement;
 
   const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
 
-  // ⚙ 設定をUIフォームとアプリに適用するヘルパー関数
-  const applySettingsToApp = async (settings: AppSettings, isInitial = false) => {
+  const isMain = getCurrentWindow().label === 'main';
+  const panelMonitorLabel = document.getElementById('panel-monitor-label');
+  const globalSections = [
+    document.getElementById('global-section'),
+    document.getElementById('global-section-2'),
+  ];
+
+  // このウィンドウがいるモニターの保存キー（起動時に決まる。決まるまでは 'unknown'）
+  let myMonitorKey = 'unknown';
+
+  // 適用処理は 1 本ずつ順番に実行する（タイル再構築が重なって壊れないように）
+  let applyChain: Promise<void> = Promise.resolve();
+  const enqueue = (label: string, fn: () => Promise<void>) => {
+    applyChain = applyChain.then(fn).catch((e) => derr(`${label} に失敗:`, e));
+    return applyChain;
+  };
+
+  // 直近に TileMode へ渡した見た目の設定（変わっていなければタイルを作り直さない）
+  let lastAppearance = '';
+  // パネルで編集中（プレビュー中）で、まだ保存していない変更があるか
+  let dirty = false;
+  // main のパネルを開いた時点の共通設定（保存時に変わったかを見る）
+  let globalAtOpen = loadGlobal();
+
+  const isPanelOpen = () => settingsModal?.classList.contains('open') ?? false;
+
+  // ⚙ 設定をフォームに入れる（モニター別の欄は全ウィンドウ、共通の欄は main だけ使う）
+  const fillForm = (settings: AppSettings) => {
     pathInput.value = settings.targetDir;
     intervalInput.value = settings.intervalSec.toString();
     playModeSelect.value = settings.playMode;
     fixedPatternSelect.value = settings.fixedPattern;
     fixedPatternContainer.style.display = settings.playMode === 'fixed' ? 'block' : 'none';
-
     tileSizeInput.value = settings.tileSize.toString();
     spacingXInput.value = settings.spacingX.toString();
     spacingYInput.value = settings.spacingY.toString();
+    colsInput.value = settings.cols.toString();
+    rowsInput.value = settings.rows.toString();
+    fitGridInput.checked = settings.fitGrid;
     bgColorInput.value = settings.bgColor;
     bgImageInput.value = settings.bgImagePath;
-
     multiMonitorInput.checked = settings.multiMonitor;
-        // TileModeへ反映
-    tileMode.setSwitchInterval(settings.intervalSec);
-    if (typeof (tileMode as any).setPlayConfig === 'function') {
-      (tileMode as any).setPlayConfig(settings.playMode, settings.fixedPattern);
-    }
-    if (typeof (tileMode as any).setAppearanceConfig === 'function') {
-      await (tileMode as any).setAppearanceConfig({
-        tileSize: settings.tileSize,
-        spacingX: settings.spacingX,
-        spacingY: settings.spacingY,
-        bgColor: settings.bgColor,
-        bgImagePath: settings.bgImagePath
-      });
-    }
+  };
 
-    if (isInitial) {
+  // 🎬 設定を TileMode に反映する。reloadDir=true のときは画像フォルダも読み直す
+  const applyToTileMode = async (settings: AppSettings, reloadDir: boolean) => {
+    tileMode.setSwitchInterval(settings.intervalSec);
+    tileMode.setPlayConfig(settings.playMode, settings.fixedPattern);
+
+    const appearance = {
+      tileSize: settings.tileSize,
+      spacingX: settings.spacingX,
+      spacingY: settings.spacingY,
+      cols: settings.cols,
+      rows: settings.rows,
+      fitGrid: settings.fitGrid,
+      bgColor: settings.bgColor,
+      bgImagePath: settings.bgImagePath,
+    };
+    const appearanceKey = JSON.stringify(appearance);
+    if (reloadDir || appearanceKey !== lastAppearance) {
+      lastAppearance = appearanceKey;
+      await tileMode.setAppearanceConfig(appearance);
+    }
+    if (reloadDir) {
       await tileMode.updateImageDirectory(settings.targetDir);
     }
   };
 
-  // このウィンドウがいるモニターの保存キー（起動時に決まる。決まるまでは 'unknown'）
-  let myMonitorKey = 'unknown';
-
-  // 🚀 保存された設定を読み直して適用する（起動時と、設定が保存されたとき）
-  const loadAndApply = async (reason: string) => {
-    try {
+  // 🚀 保存された設定を読み直して、フォームと画面に適用する
+  const loadAndApply = (reason: string, reloadDir = true) =>
+    enqueue(`設定の適用 (${reason})`, async () => {
       const settings = loadEffectiveSettings(myMonitorKey, reason);
-      await applySettingsToApp(settings, true);
-    } catch (e) {
-      derr(`設定の適用に失敗 (${reason}):`, e);
-    }
-  };
+      fillForm(settings);
+      await applyToTileMode(settings, reloadDir);
+      dirty = false;
+    });
 
   (async () => {
     myMonitorKey = await resolveMonitorKey();
     await loadAndApply('boot');
   })();
 
-  // 設定が保存されたら、全ウィンドウ（保存した main も含む）が同じ経路で読み直して適用する
+  // 共通設定（画像フォルダなど）が保存されたら、全ウィンドウが読み直して適用する
   listen(SETTINGS_CHANGED_EVENT, () => {
     void loadAndApply(SETTINGS_CHANGED_EVENT);
   }).catch((e) => derr(`${SETTINGS_CHANGED_EVENT} の購読に失敗:`, e));
@@ -112,11 +150,8 @@ if (appContainer) {
   // 🖥️ マルチモニター自動展開の初期化関数（Rust側に委譲）
   async function initMultiMonitor() {
     try {
-      const currentWin = getCurrentWindow();
-      const currentLabel = currentWin.label;
-
       // メインウィンドウ以外では実行しない
-      if (currentLabel !== 'main') return;
+      if (!isMain) return;
 
       // 設定でマルチモニターが無効なら展開しない
       if (!loadGlobal().multiMonitor) {
@@ -131,16 +166,96 @@ if (appContainer) {
     }
   }
 
+  // ---- 設定パネル（各ウィンドウが自分のモニター用に開く） ----------------------
 
-  // ⚙ タスクトレイからのイベント
-  const isMain = getCurrentWindow().label === 'main';
-  listen('open-settings', () => {
-    if (!isMain) return;
+  /** フォームからモニター別の設定を読む。strict=true で不正な値があれば null（プレビュー用）。 */
+  const readMonitorForm = (strict: boolean): MonitorSettings | null => {
+    const num = (el: HTMLInputElement, def: number, positive = true): number | null => {
+      const v = parseFloat(el.value);
+      if (Number.isFinite(v) && (!positive || v > 0)) return v;
+      return strict ? null : def;
+    };
+    const intervalSec = num(intervalInput, DEFAULT_MONITOR.intervalSec);
+    const tileSize = num(tileSizeInput, DEFAULT_MONITOR.tileSize);
+    const spacingX = num(spacingXInput, DEFAULT_MONITOR.spacingX);
+    const spacingY = num(spacingYInput, DEFAULT_MONITOR.spacingY);
+    const grid = (el: HTMLInputElement, def: number): number | null => {
+      const v = Number(el.value);
+      if (Number.isInteger(v) && v >= GRID_MIN && v <= GRID_MAX) return v;
+      return strict ? null : def;
+    };
+    const cols = grid(colsInput, DEFAULT_MONITOR.cols);
+    const rows = grid(rowsInput, DEFAULT_MONITOR.rows);
+    if (intervalSec === null || tileSize === null || spacingX === null || spacingY === null || cols === null || rows === null) return null;
+    return {
+      intervalSec,
+      playMode: playModeSelect.value,
+      fixedPattern: fixedPatternSelect.value,
+      tileSize,
+      spacingX,
+      spacingY,
+      cols,
+      rows,
+      fitGrid: fitGridInput.checked,
+      bgColor: bgColorInput.value,
+      bgImagePath: bgImageInput.value,
+    };
+  };
+
+  // ライブプレビュー: 入力が止まってから、このウィンドウにだけ適用する（保存はしない）
+  let previewTimer: number | undefined;
+  const schedulePreview = () => {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      const m = readMonitorForm(true);
+      if (!m) return; // 入力途中の不正な値は反映しない
+      dirty = true;
+      void enqueue('プレビュー', () => applyToTileMode({ ...loadGlobal(), ...m }, false));
+    }, 400);
+  };
+  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, bgColorInput, bgImageInput]) {
+    el?.addEventListener('input', schedulePreview);
+    el?.addEventListener('change', schedulePreview);
+  }
+
+  const openPanel = () => {
+    if (isPanelOpen()) return;
+    const settings = loadEffectiveSettings(myMonitorKey, 'open-settings');
+    fillForm(settings);
+    globalAtOpen = loadGlobal();
+    dirty = false;
+    for (const g of globalSections) if (g) g.style.display = isMain ? '' : 'none';
+    if (panelMonitorLabel) {
+      panelMonitorLabel.textContent = `モニター: ${myMonitorKey}` + (isMain ? '（main：共通設定も編集）' : '');
+    }
     settingsModal?.classList.add('open');
-  });
+  };
+
+  /** パネルを閉じる。保存前のプレビューが残っていれば保存済みの状態に戻す。main が閉じたら全員に知らせる。 */
+  const closePanel = async (revert: boolean, broadcast: boolean) => {
+    window.clearTimeout(previewTimer);
+    settingsModal?.classList.remove('open');
+    if (revert && dirty) await loadAndApply('revert', false);
+    dirty = false;
+    if (broadcast) {
+      try {
+        await emit('close-settings');
+      } catch (e) {
+        derr('close-settings の配信に失敗:', e);
+      }
+    }
+  };
+
+  // ⚙ タスクトレイからのイベント（全ウィンドウに届く）
+  listen('open-settings', () => openPanel()).catch((e) => derr('open-settings の購読に失敗:', e));
+  // main のパネルが閉じたら、サブのパネルも閉じる（未保存のプレビューは破棄）
+  listen('close-settings', () => {
+    if (isMain || !isPanelOpen()) return;
+    void closePanel(true, false);
+  }).catch((e) => derr('close-settings の購読に失敗:', e));
 
   closeBtn?.addEventListener('click', () => {
-    settingsModal?.classList.remove('open');
+    void closePanel(true, isMain);
   });
 
   // 📁 フォルダ参照
@@ -169,6 +284,7 @@ if (appContainer) {
       });
       if (selected && typeof selected === 'string') {
         bgImageInput.value = selected;
+        schedulePreview();
       }
     } catch (err) {
       console.error('背景画像選択エラー:', err);
@@ -179,47 +295,40 @@ if (appContainer) {
     fixedPatternContainer.style.display = playModeSelect.value === 'fixed' ? 'block' : 'none';
   });
 
-  // 💾 保存ボタン
-  // 設定の保存・リセットのあとに、全ウィンドウへ「読み直して適用して」と知らせる。
-  // 配信に失敗したときは、せめて自分のウィンドウだけでも適用する。
-  const notifySettingsChanged = async () => {
-    try {
-      await emit(SETTINGS_CHANGED_EVENT);
-    } catch (e) {
-      derr(`${SETTINGS_CHANGED_EVENT} の配信に失敗。このウィンドウだけ適用する:`, e);
-      await loadAndApply('local-fallback');
-    }
-  };
-
+  // 💾 保存ボタン: このモニターの設定だけ保存する。main は共通設定も保存する
   saveBtn?.addEventListener('click', async () => {
-    // 共通（画像フォルダ・マルチモニター）
-    saveGlobal({
-      targetDir: pathInput.value,
-      multiMonitor: multiMonitorInput.checked,
-    });
+    const m = readMonitorForm(false)!;
+    saveMonitor(myMonitorKey, m);
 
-    // Step 3 までは、このパネルは「モニター共通の既定値」を編集する
-    saveMonitorDefault({
-      intervalSec: parseFloat(intervalInput.value) || 12,
-      playMode: playModeSelect.value,
-      fixedPattern: fixedPatternSelect.value,
-      tileSize: parseFloat(tileSizeInput.value) || 2.0,
-      spacingX: parseFloat(spacingXInput.value) || 4.5,
-      spacingY: parseFloat(spacingYInput.value) || 2.8,
-      bgColor: bgColorInput.value,
-      bgImagePath: bgImageInput.value,
-    });
+    let globalChanged = false;
+    if (isMain) {
+      const g: GlobalSettings = { targetDir: pathInput.value, multiMonitor: multiMonitorInput.checked };
+      saveGlobal(g);
+      globalChanged = g.targetDir !== globalAtOpen.targetDir || g.multiMonitor !== globalAtOpen.multiMonitor;
+    }
 
-    await notifySettingsChanged();
-    settingsModal?.classList.remove('open');
+    // プレビュー済みの内容と保存内容が違う（不正値の補正など）場合に備えて、保存値を適用し直す
+    await loadAndApply('save', false);
+    dirty = false;
+
+    if (globalChanged) {
+      // 画像フォルダの変更などを他のウィンドウにも反映させる（main 自身もこの経路で読み直す）
+      try {
+        await emit(SETTINGS_CHANGED_EVENT);
+      } catch (e) {
+        derr(`${SETTINGS_CHANGED_EVENT} の配信に失敗。このウィンドウだけ適用する:`, e);
+        await loadAndApply('local-fallback');
+      }
+    }
+    await closePanel(false, isMain);
   });
 
-  // 🔄 デフォルトに戻すボタン
+  // 🔄 このモニターの専用設定を消して、既定値に戻す
   resetBtn?.addEventListener('click', async () => {
-    if (confirm('設定を初期状態に戻しますか？')) {
-      resetSettings(myMonitorKey);
-      await notifySettingsChanged();
-      settingsModal?.classList.remove('open');
+    if (confirm('このモニターの設定を初期状態（共通の既定値）に戻しますか？')) {
+      resetMonitor(myMonitorKey);
+      await loadAndApply('reset', false);
+      await closePanel(false, isMain);
     }
   });
 

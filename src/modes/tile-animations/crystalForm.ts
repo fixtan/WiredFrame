@@ -9,7 +9,9 @@ export function updateCrystalAnimation(
   group.rotation.x = Math.sin(time * 0.3) * 0.2;
 
   const total = group.children.length;
-  const cols = 10;
+  const cols = (group.userData.cols as number) || 10;
+  const rows = Math.max(1, Math.ceil(total / cols));
+  const midRow = (rows - 1) / 2; // 縦の中心（6 行なら 2.5）
 
   group.children.forEach((child, i) => {
     const col = i % cols;
@@ -17,8 +19,8 @@ export function updateCrystalAnimation(
     const angle = (col / cols) * Math.PI * 2;
 
     // 幾何学的な結晶・ピラミッド状のレイアウトを計算
-    const heightLayer = (row - 2.5) * 1.8;
-    const r = 6 + Math.abs(row - 2.5) * 2;
+    const heightLayer = (row - midRow) * 1.8;
+    const r = 6 + Math.abs(row - midRow) * 2;
     const x = Math.cos(angle) * r;
     const z = Math.sin(angle) * r;
     const y = heightLayer;

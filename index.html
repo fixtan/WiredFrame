@@ -136,6 +136,10 @@
     <div id="settings-modal" class="settings-modal">
       <div class="settings-panel">
         <h2>WIRED FRAME CONFIGURATION</h2>
+        <div id="panel-monitor-label" style="font-size: 0.75rem; color: #00ffff99; margin: -4px 0 14px; word-break: break-all;"></div>
+
+        <!-- 共通設定（main のパネルだけに表示） -->
+        <div id="global-section">
 
         <div class="setting-group">
           <label>画像フォルダパス</label>
@@ -144,6 +148,8 @@
             <button id="browse-btn">参照</button>
           </div>
         </div>
+        </div>
+        <!-- /共通設定 -->
 
         <div class="setting-group">
           <label>パターン切替間隔（秒）</label>
@@ -192,6 +198,19 @@
           </div>
         </div>
 
+        <!-- 並べ方（縦画面のモニターは列を減らして行を増やす） -->
+        <div class="setting-group">
+          <label>並べる枚数 (横 列 / 縦 行)　1〜40</label>
+          <div class="path-row">
+            <input type="number" id="input-cols" value="10" step="1" min="1" max="40" />
+            <input type="number" id="input-rows" value="6" step="1" min="1" max="40" />
+          </div>
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 0.82rem; color: #aaa;">
+          <input type="checkbox" id="input-fit-grid">
+          <span>全体が画面に収まるようカメラ距離を自動調整する</span>
+        </label>
+
         <!-- 🆕 追加：背景色 -->
         <div class="setting-group">
           <label>背景色</label>
@@ -207,13 +226,15 @@
           </div>
         </div>
 
-        <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
-          <input type="checkbox" id="input-multi-monitor">
-          <span>マルチモニター連動（全画面一括展開）を有効にする</span>
-        </label>
+        <div id="global-section-2">
+          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+            <input type="checkbox" id="input-multi-monitor">
+            <span>マルチモニター連動（全画面一括展開）を有効にする（次回起動時に反映）</span>
+          </label>
+        </div>
 
         <div class="settings-footer">
-          <button id="reset-settings" class="btn" style="background: transparent; color: #ff5555; border: 1px solid #ff555555;">デフォルトに戻す</button>
+          <button id="reset-settings" class="btn" style="background: transparent; color: #ff5555; border: 1px solid #ff555555;">このモニターをデフォルトに戻す</button>
           <div style="flex-grow: 1;"></div>
           <button id="close-settings">キャンセル</button>
           <button id="save-settings">適用して保存</button>

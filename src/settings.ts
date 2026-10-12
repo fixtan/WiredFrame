@@ -28,6 +28,9 @@ export type MonitorSettings = {
   tileSize: number;
   spacingX: number;
   spacingY: number;
+  cols: number; // 横に並べる枚数（整数）
+  rows: number; // 縦に並べる枚数（整数）
+  fitGrid: boolean; // true: グリッド全体が画面に収まるようカメラ距離を自動調整
   bgColor: string;
   bgImagePath: string;
 };
@@ -47,6 +50,9 @@ export const DEFAULT_MONITOR: MonitorSettings = {
   tileSize: 2.0,
   spacingX: 4.5,
   spacingY: 2.8,
+  cols: 10,
+  rows: 6,
+  fitGrid: false,
   bgColor: '#000000',
   bgImagePath: '',
 };
@@ -65,6 +71,10 @@ const KEY_MONITOR_PREFIX = 'wiredframe_monitor_v2:';
 const PLAY_MODES = ['rotation', 'random', 'fixed'];
 // 0 以下だと壊れる項目
 const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY']);
+// 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）
+export const GRID_MIN = 1;
+export const GRID_MAX = 40;
+const GRID_KEYS = new Set(['cols', 'rows']);
 
 // ---- 内部ヘルパー ----------------------------------------------------------
 
@@ -119,6 +129,10 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
     }
     if (typeof v === 'number' && (!Number.isFinite(v) || (POSITIVE_KEYS.has(k) && v <= 0))) {
       dwarn(`設定: ${where}.${k} の値が不正（${v}）。初期値 ${def} を使う`);
+      continue;
+    }
+    if (GRID_KEYS.has(k) && (!Number.isInteger(v) || (v as number) < GRID_MIN || (v as number) > GRID_MAX)) {
+      dwarn(`設定: ${where}.${k} の値が不正（${v}。${GRID_MIN}〜${GRID_MAX} の整数）。初期値 ${def} を使う`);
       continue;
     }
     if (k === 'playMode' && !PLAY_MODES.includes(v as string)) {
@@ -218,6 +232,12 @@ export function resetSettings(monitorKey: string) {
   localStorage.removeItem(KEY_MONITOR_PREFIX + monitorKey);
   localStorage.setItem(KEY_V1_MIGRATED, '1');
   dlog(`設定: 初期状態に戻した key=${monitorKey}`);
+}
+
+/** そのモニター専用の保存値だけを消す（共通・既定値・他のモニターは触らない）。 */
+export function resetMonitor(monitorKey: string) {
+  localStorage.removeItem(KEY_MONITOR_PREFIX + monitorKey);
+  dlog(`設定: モニター別を削除（既定値に戻す） key=${monitorKey}`);
 }
 
 // ---- 自分のモニターキー ----------------------------------------------------

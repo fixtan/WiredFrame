@@ -8,7 +8,8 @@ export class AppManager {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private currentMode: IMode | null = null;
-  private clock = new THREE.Clock();
+  // THREE.Clock は非推奨。Timer は update() で時刻を進めてから delta / elapsed を読む
+  private timer = new THREE.Timer();
 
   constructor(container: HTMLElement) {
     // シーン・カメラ・レンダラーの初期化
@@ -49,12 +50,14 @@ export class AppManager {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.currentMode?.onResize?.();
   }
 
   private animate = () => {
     requestAnimationFrame(this.animate);
-    const delta = this.clock.getDelta();
-    const time = this.clock.getElapsedTime();
+    this.timer.update();
+    const delta = this.timer.getDelta();
+    const time = this.timer.getElapsed();
 
     this.currentMode?.update(delta, time);
     this.renderer.render(this.scene, this.camera);

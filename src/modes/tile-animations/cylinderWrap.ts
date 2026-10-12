@@ -8,7 +8,7 @@ export function updateCylinderAnimation(
   group.rotation.y = time * 0.1;
 
   const total = group.children.length;
-  const cols = 10;
+  const cols = (group.userData.cols as number) || 10;
   const radius = 12; // 円柱の半径
 
   group.children.forEach((child, i) => {

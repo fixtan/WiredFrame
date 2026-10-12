@@ -8,5 +8,7 @@ export interface IMode {
   update(delta: number, time: number): void;
   onKeyDown?(event: KeyboardEvent): void;
   onPointerMove?(event: PointerEvent): void;
+  /** ウィンドウのサイズが変わった（カメラの aspect 更新後）に呼ばれる */
+  onResize?(): void;
   dispose(): void;
 }

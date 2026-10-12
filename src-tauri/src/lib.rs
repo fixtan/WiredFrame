@@ -174,7 +174,10 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "settings" => {
-                            let _ = app.emit_to("main", "open-settings", ());
+                            // 全ウィンドウに配信。各モニターが自分用の設定パネルを開く
+                            if let Err(e) = app.emit("open-settings", ()) {
+                                debug::log("rust", "error", &format!("open-settings の配信に失敗: {}", e));
+                            }
                         }
                         "debug-overlay" => {
                             // 全ウィンドウに配信（emit は全宛先）。各モニターに識別用オーバーレイが出る
