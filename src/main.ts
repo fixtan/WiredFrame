@@ -64,6 +64,8 @@ if (appContainer) {
   const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
   const hotkeyInput = document.getElementById('input-hotkey') as HTMLInputElement;
   const hotkeyStatus = document.getElementById('hotkey-status');
+  const autostartInput = document.getElementById('input-autostart') as HTMLInputElement;
+  const autostartStatus = document.getElementById('autostart-status') as HTMLElement;
   const idleEnabledInput = document.getElementById('input-idle-enabled') as HTMLInputElement;
   const idleMinutesInput = document.getElementById('input-idle-minutes') as HTMLInputElement;
 
@@ -90,6 +92,8 @@ if (appContainer) {
   let dirty = false;
   // main のパネルを開いた時点の共通設定（保存時に変わったかを見る）
   let globalAtOpen = loadGlobal();
+  // ログイン時の自動起動。状態は OS（レジストリ）が持つので設定には保存しない。null = まだ読めていない
+  let autostartAtOpen: boolean | null = null;
   // 直近に TileMode へ読ませた画像フォルダのパス（変わったときだけ読み直す）
   let lastDir: string | null = null;
   // パネルで編集中の画像フォルダのリストと既定（main だけが編集する。保存するまで反映しない）
@@ -436,6 +440,21 @@ if (appContainer) {
       panelMonitorLabel.textContent = `モニター: ${myMonitorKey}` + (isMain ? '（main：共通設定も編集）' : '');
     }
     settingsModal?.classList.add('open');
+    if (isMain) void loadAutostart();
+  };
+
+  const loadAutostart = async () => {
+    autostartAtOpen = null;
+    autostartInput.disabled = true;
+    autostartStatus.textContent = '';
+    try {
+      autostartAtOpen = await invoke<boolean>('get_autostart');
+      autostartInput.checked = autostartAtOpen;
+      autostartInput.disabled = false;
+    } catch (e) {
+      derr('get_autostart に失敗:', e);
+      autostartStatus.textContent = '自動起動の状態を取得できませんでした';
+    }
   };
 
   /** パネルを閉じる。保存前のプレビューが残っていれば保存済みの状態に戻す。main が閉じたら全員に知らせる。 */
@@ -551,6 +570,15 @@ if (appContainer) {
       multiChanged = g.multiMonitor !== globalAtOpen.multiMonitor;
       const foldersKey = (x: GlobalSettings) => JSON.stringify([x.folders, x.defaultFolderId]);
       globalChanged = foldersKey(g) !== foldersKey(globalAtOpen) || multiChanged;
+    }
+
+    if (isMain && autostartAtOpen !== null && autostartInput.checked !== autostartAtOpen) {
+      try {
+        await invoke('set_autostart', { enabled: autostartInput.checked });
+      } catch (e) {
+        derr('set_autostart に失敗:', e);
+        dwarn(`ログイン時の自動起動を切り替えられなかった: ${e}`);
+      }
     }
 
     // プレビュー済みの内容と保存内容が違う（不正値の補正など）場合に備えて、保存値を適用し直す

@@ -64,6 +64,32 @@ fn set_fullscreen_all(app: tauri::AppHandle, fullscreen: bool) -> Result<(), Str
 }
 
 
+/// Windows ログイン時の自動起動が有効か（状態は OS 側のレジストリが持つ。設定ファイルには保存しない）
+#[tauri::command]
+fn get_autostart(app: tauri::AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    match app.autolaunch().is_enabled() {
+        Ok(v) => v,
+        Err(e) => {
+            debug::log("rust", "warn", &format!("自動起動の状態を取得できない: {e}"));
+            false
+        }
+    }
+}
+
+/// Windows ログイン時の自動起動を ON/OFF する。失敗したら理由を返す
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let result = if enabled { manager.enable() } else { manager.disable() };
+    match &result {
+        Ok(()) => debug::log("rust", "info", &format!("ログイン時の自動起動を {} にした", if enabled { "ON" } else { "OFF" })),
+        Err(e) => debug::log("rust", "warn", &format!("自動起動の切り替えに失敗: {e}")),
+    }
+    result.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     debug::init();
@@ -71,9 +97,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             get_images_from_dir,
             set_fullscreen_all,
+            get_autostart,
+            set_autostart,
             saver::open_sub_monitors,
             saver::close_sub_monitors,
             saver::start_saver,

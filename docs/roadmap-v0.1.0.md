@@ -58,7 +58,12 @@
 - 移行：今の `targetDir` があれば、名前「デフォルト」のリスト項目にして `defaultFolderId` に指定する。
 - 選んだフォルダが存在しないときは、ログに警告を出し、組み込みの画像を使う。
 
-### 3.5 公開前の仕上げ（作業 E）
+### 3.5 公開前の仕上げ（作業 E）〔実装済み。実機確認待ち〕
+- 実装メモ（2026-10-12）：`productName` を `WiredFrame`、`identifier` を `com.fixtan.wiredframe`、バンドルは NSIS のみ、`package.json` の version を 0.1.0 に揃えた。アイコンは仮の自作（緑の枠+格子）。`npx tauri icon <元画像>` で差し替え可。
+- **identifier を変えると WebView2 のデータ保存先が変わり、localStorage の設定（フォルダ一覧など）は引き継がれない。**初回だけ設定し直しが必要。
+- ログイン時の自動起動：`tauri-plugin-autostart`（Rust 側の `get_autostart` / `set_autostart` コマンド）。状態はレジストリが持つので設定ファイルには保存しない。パネルの main だけにチェックボックス。`tauri dev` で ON にすると開発ビルドの exe が登録されるので注意。
+- README.md を追加。
+- リリースビルドの確認：このサンドボックスでは Windows 向けビルドができないため未確認。手元で `npm run tauri build` を実行して確認する。
 - `identifier`（今は `com.tauri.dev`）、アプリ名、バージョン、アイコン、README、リリースビルドの確認。
 - Windows ログイン時の自動起動（常駐アプリなので欲しいかもしれない）。必要なら `tauri-plugin-autostart` で足す。（要望があれば）
 

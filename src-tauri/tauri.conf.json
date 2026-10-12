@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "wiredframe",
+  "productName": "WiredFrame",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.fixtan.wiredframe",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "wiredframe",
+        "title": "WiredFrame",
         "width": 800,
         "height": 600,
         "resizable": true,
@@ -26,13 +26,17 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,8 +44,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "android": {
-      "debugApplicationIdSuffix": ".debug"
-    }
+    "shortDescription": "マルチモニター対応スクリーンセーバー",
+    "publisher": "fixtan"
   }
 }
