@@ -64,11 +64,28 @@ export const NOISE3_PARAMS: ParamDef[] = [
   { key: 'distance', label: 'カメラの距離（マウスのホイールでも変えられる）', min: 1, max: 40, step: 0.5, default: 4.5 },
 ];
 
+export const NOISE4_PARAMS: ParamDef[] = [
+  { key: 'renderScale', label: '描画の解像度（小さいほど軽い。ぼかした絵なので 0.5 でも綺麗）', min: 0.25, max: 1, step: 0.05, default: 0.5 },
+  { key: 'detail', label: '細部の層の数（小さいほど軽い）', min: 1, max: 6, step: 1, default: 4 },
+  { key: 'noiseScale', label: '模様の細かさ', min: 0.1, max: 10, step: 0.1, default: 1.5 },
+  { key: 'warp', label: '歪みの強さ', min: 0, max: 3, step: 0.1, default: 0.5 },
+  { key: 'speed', label: '動く速さ', min: 0, max: 4, step: 0.1, default: 1 },
+  { key: 'pulse', label: '脈動の強さ（0 でオフ）', min: 0, max: 2, step: 0.05, default: 0.0 },
+  { key: 'bpm', label: '脈動の速さ（1 分あたりの拍数）', min: 20, max: 180, step: 1, default: 60 },
+  { key: 'glow', label: '脈動で光る強さ', min: 0, max: 2, step: 0.02, default: 0.22 },
+  { key: 'hue', label: '光る色（色相 0〜360。0 が赤）', min: 0, max: 360, step: 1, default: 0 },
+  { key: 'colorCycle', label: '色が一周する秒数（0 で固定）', min: 0, max: 600, step: 10, default: 150 },
+  { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 1 },
+  { key: 'glowLight', label: '光る色の明るさ', min: 0.1, max: 0.8, step: 0.01, default: 0.5 },
+  { key: 'baseLight', label: '暗い所の明るさ（ほぼ黒）', min: 0, max: 0.3, step: 0.005, default: 0.025 },
+];
+
 /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
 export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise1: NOISE1_PARAMS,
   noise2: NOISE2_PARAMS,
   noise3: NOISE3_PARAMS,
+  noise4: NOISE4_PARAMS,
 };
 
 export function paramDefaults(defs: ParamDef[]): ParamValues {
