@@ -97,6 +97,28 @@ export const NOISE5_PARAMS: ParamDef[] = [
   { key: 'coreTint', label: '線の芯の色（0 で白、1 で光る色）', min: 0, max: 1, step: 0.05, default: 0 },
 ];
 
+export const NOISE6_PARAMS: ParamDef[] = [
+  { key: 'renderScale', label: '描画の解像度（小さいほど軽い）', min: 0.25, max: 1, step: 0.05, default: 0.75 },
+  { key: 'detail', label: '細部の層の数（小さいほど軽い）', min: 1, max: 5, step: 1, default: 3 },
+  { key: 'segments', label: '鏡の数（花びらの数）', min: 2, max: 24, step: 1, default: 8 },
+  { key: 'rings', label: 'リングの折り返し（大きいほど層が多い。0 でなし）', min: 0, max: 4, step: 0.1, default: 1.2 },
+  { key: 'scale', label: '模様の細かさ', min: 0.3, max: 6, step: 0.1, default: 1.2 },
+  { key: 'warp', label: '歪みの強さ（大きいほど渦巻く）', min: 0, max: 3, step: 0.1, default: 1.4 },
+  { key: 'speed', label: '模様が動く速さ', min: 0, max: 2, step: 0.02, default: 0.25 },
+  { key: 'rotation', label: '鏡の回転の速さ', min: -1, max: 1, step: 0.01, default: 0.04 },
+  { key: 'ringFlow', label: 'リングが流れる速さ', min: -0.5, max: 0.5, step: 0.01, default: 0.03 },
+  { key: 'relief', label: '凹凸の強さ（大きいと縞になる）', min: 0, max: 3, step: 0.05, default: 0.5 },
+  { key: 'light', label: '陰影の強さ', min: 0, max: 2, step: 0.05, default: 1 },
+  { key: 'specular', label: 'つや（ハイライト）', min: 0, max: 2, step: 0.05, default: 0.5 },
+  { key: 'fade', label: '外側を暗くする強さ', min: 0, max: 1, step: 0.05, default: 0.7 },
+  { key: 'hole', label: '中心の暗い穴の大きさ（0 でなし）', min: 0, max: 0.6, step: 0.01, default: 0 },
+  { key: 'holeGlow', label: '穴の縁の光', min: 0, max: 2, step: 0.05, default: 0.8 },
+  { key: 'hue', label: '色（色相 0〜360。330 前後がピンク、220 前後が青）', min: 0, max: 360, step: 1, default: 330 },
+  { key: 'hueShift', label: '2 色目の色相のずれ（0〜360）', min: 0, max: 360, step: 1, default: 40 },
+  { key: 'colorCycle', label: '色が一周する秒数（0 で固定）', min: 0, max: 600, step: 10, default: 0 },
+  { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 0.75 },
+];
+
 /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
 export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise1: NOISE1_PARAMS,
@@ -104,6 +126,7 @@ export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise3: NOISE3_PARAMS,
   noise4: NOISE4_PARAMS,
   noise5: NOISE5_PARAMS,
+  noise6: NOISE6_PARAMS,
 };
 
 export function paramDefaults(defs: ParamDef[]): ParamValues {
