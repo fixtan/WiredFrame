@@ -15,7 +15,7 @@
 
 ```
 npm run bump -- 0.1.2
-# RELEASE_NOTES_v0.1.2.md を書く（修正・追加・改善・インストール）
+# RELEASE_NOTES_v0.1.2.md を書く（修正・追加・改善・インストール）。公開後に削除する
 npm run tauri build
 git add -A
 git commit -m "chore: v0.1.2"
@@ -26,7 +26,8 @@ gh release create v0.1.2 "src-tauri\target\release\bundle\nsis\WiredFrame_0.1.2_
 ```
 
 - タグは、ビルドした内容を push したあとに打つ（タグが指すコミットと、添付する exe を一致させるため）。
-- リリース文は、前のバージョンの `RELEASE_NOTES_*.md` を写して書く。
+- リリース文は、前のバージョンのものを写して書く。`RELEASE_NOTES_*.md` は公開後に消すので、`gh release view v0.2.0` か GitHub のリリースページから取る。
+- 公開後、ルートの `RELEASE_NOTES_*.md` は `git rm` して消す（リリース文は GitHub 側に残る）。
 - インストーラーに署名はない（SmartScreen の警告が出る）。
 - 紹介ページ（project104）の更新履歴・タイトルの版数も合わせて直す。
 
