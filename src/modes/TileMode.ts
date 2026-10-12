@@ -30,6 +30,7 @@ export class TileMode implements IMode {
   private cols: number = 10;
   private rows: number = 6;
   private fitGrid: boolean = false;
+  private brightness: number = 100; // %。タイルと背景に掛ける
   // タイル再構築の世代。古い世代のテクスチャ読み込みが完了しても使わない（解放済みのため）
   private buildGen = 0;
   private bgColor: string = '#000000';
@@ -109,13 +110,41 @@ export class TileMode implements IMode {
       const bgUrl = this.bgImagePath.startsWith('http') ? this.bgImagePath : convertFileSrc(this.bgImagePath);
       this.textureLoader.load(bgUrl, (texture) => {
         texture.generateMipmaps = true;
+        // 色空間の指定がないと線形として扱われ、全体が白っぽくなる
+        texture.colorSpace = THREE.SRGBColorSpace;
         this.scene.background = texture;
+        this.scene.backgroundIntensity = this.gain();
       }, undefined, (err) => {
         console.warn("背景画像の読み込みに失敗しました。単色に戻します。", err);
-        this.scene.background = new THREE.Color(this.bgColor);
+        this.setColorBackground();
       });
     } else {
-      this.scene.background = new THREE.Color(this.bgColor);
+      this.setColorBackground();
+    }
+  }
+
+  /** 明るさ（%）を、見た目に比例するように（ガンマ補正して）線形の倍率にする */
+  private gain(): number {
+    return Math.pow(this.brightness / 100, 2.2);
+  }
+
+  private setColorBackground() {
+    this.scene.background = new THREE.Color(this.bgColor).multiplyScalar(this.gain());
+  }
+
+  /** 明るさ（%）。タイルと背景に即反映する（タイルは作り直さない） */
+  setBrightness(percent: number) {
+    this.brightness = percent;
+    const k = this.gain();
+    for (const child of this.group.children) {
+      const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      if (mat.map) mat.color.setScalar(k);
+    }
+    if (!this.scene) return;
+    if (this.scene.background instanceof THREE.Texture) {
+      this.scene.backgroundIntensity = k;
+    } else {
+      this.setColorBackground();
     }
   }
 
@@ -181,6 +210,7 @@ export class TileMode implements IMode {
           return;
         }
         texture.generateMipmaps = true;
+        texture.colorSpace = THREE.SRGBColorSpace; // 指定がないと全体が白っぽくなる
         texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.magFilter = THREE.LinearFilter;
         texture.anisotropy = 16;
@@ -192,7 +222,7 @@ export class TileMode implements IMode {
           mesh.geometry = new THREE.PlaneGeometry(baseHeight * aspect, baseHeight);
         }
         material.map = texture;
-        material.color.set(0xffffff);
+        material.color.setScalar(this.gain());
         material.needsUpdate = true;
       });
 

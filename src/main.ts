@@ -59,6 +59,12 @@ if (appContainer) {
   const colsInput = document.getElementById('input-cols') as HTMLInputElement;
   const rowsInput = document.getElementById('input-rows') as HTMLInputElement;
   const fitGridInput = document.getElementById('input-fit-grid') as HTMLInputElement;
+  const brightnessInput = document.getElementById('input-brightness') as HTMLInputElement;
+  const brightnessVal = document.getElementById('brightness-val') as HTMLElement;
+  const tabBar = document.getElementById('tab-bar') as HTMLElement;
+  const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tab-btn'));
+  const paneMonitor = document.getElementById('pane-monitor') as HTMLElement;
+  const paneCommon = document.getElementById('pane-common') as HTMLElement;
   const bgColorInput = document.getElementById('input-bg-color') as HTMLInputElement;
 
   const multiMonitorInput = document.getElementById('input-multi-monitor') as HTMLInputElement;
@@ -117,6 +123,8 @@ if (appContainer) {
     colsInput.value = settings.cols.toString();
     rowsInput.value = settings.rows.toString();
     fitGridInput.checked = settings.fitGrid;
+    brightnessInput.value = settings.brightness.toString();
+    brightnessVal.textContent = settings.brightness.toString();
     bgColorInput.value = settings.bgColor;
     bgImageInput.value = settings.bgImagePath;
     multiMonitorInput.checked = settings.multiMonitor;
@@ -129,6 +137,8 @@ if (appContainer) {
   const applyToTileMode = async (settings: AppSettings, reloadDir: boolean) => {
     tileMode.setSwitchInterval(settings.intervalSec);
     tileMode.setPlayConfig(settings.playMode, settings.fixedPattern);
+    // 明るさは、タイルを作り直さずにその場で反映する（背景の作り直しより前に値を渡す）
+    tileMode.setBrightness(settings.brightness);
 
     const appearance = {
       tileSize: settings.tileSize,
@@ -405,6 +415,7 @@ if (appContainer) {
       cols,
       rows,
       fitGrid: fitGridInput.checked,
+      brightness: Number.isInteger(Number(brightnessInput.value)) ? Number(brightnessInput.value) : DEFAULT_MONITOR.brightness,
       bgColor: bgColorInput.value,
       bgImagePath: bgImageInput.value,
     };
@@ -424,9 +435,23 @@ if (appContainer) {
       void enqueue('プレビュー', () => applyToTileMode({ ...g, ...m, targetDir: dir }, false));
     }, 400);
   };
-  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, bgColorInput, bgImageInput]) {
+  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, brightnessInput, bgColorInput, bgImageInput]) {
     el?.addEventListener('input', schedulePreview);
     el?.addEventListener('change', schedulePreview);
+  }
+
+  brightnessInput.addEventListener('input', () => {
+    brightnessVal.textContent = brightnessInput.value;
+  });
+
+  // タブ（main のパネルだけ）。サブのパネルは「このモニター」だけを出す
+  const showTab = (name: 'monitor' | 'common') => {
+    paneMonitor.classList.toggle('active', name === 'monitor');
+    paneCommon.classList.toggle('active', name === 'common');
+    for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === name);
+  };
+  for (const b of tabButtons) {
+    b.addEventListener('click', () => showTab(b.dataset.tab === 'common' ? 'common' : 'monitor'));
   }
 
   const openPanel = () => {
@@ -436,6 +461,8 @@ if (appContainer) {
     globalAtOpen = loadGlobal();
     dirty = false;
     for (const g of globalSections) if (g) g.style.display = isMain ? '' : 'none';
+    tabBar.style.display = isMain ? '' : 'none';
+    showTab('monitor');
     if (panelMonitorLabel) {
       panelMonitorLabel.textContent = `モニター: ${myMonitorKey}` + (isMain ? '（main：共通設定も編集）' : '');
     }

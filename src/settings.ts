@@ -39,6 +39,7 @@ export type MonitorSettings = {
   cols: number; // 横に並べる枚数（整数）
   rows: number; // 縦に並べる枚数（整数）
   fitGrid: boolean; // true: グリッド全体が画面に収まるようカメラ距離を自動調整
+  brightness: number; // 明るさ（%、整数 10〜100）。タイルと背景に掛ける
   bgColor: string;
   bgImagePath: string;
 };
@@ -69,6 +70,7 @@ export const DEFAULT_MONITOR: MonitorSettings = {
   cols: 10,
   rows: 6,
   fitGrid: false,
+  brightness: 100,
   bgColor: '#000000',
   bgImagePath: '',
 };
@@ -90,12 +92,15 @@ const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY'
 // 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）
 export const GRID_MIN = 1;
 export const GRID_MAX = 40;
+export const BRIGHTNESS_MIN = 10;
+export const BRIGHTNESS_MAX = 100;
 export const IDLE_MIN = 1;
 export const IDLE_MAX = 720;
 const INT_RANGES: Record<string, [number, number]> = {
   cols: [GRID_MIN, GRID_MAX],
   rows: [GRID_MIN, GRID_MAX],
   idleMinutes: [IDLE_MIN, IDLE_MAX],
+  brightness: [BRIGHTNESS_MIN, BRIGHTNESS_MAX],
 };
 
 // ---- 内部ヘルパー ----------------------------------------------------------

@@ -45,8 +45,9 @@
         background: rgba(15, 15, 25, 0.95);
         border: 1px solid #00ffff66;
         border-radius: 8px;
-        width: 480px;
-        padding: 30px;
+        width: 560px;
+        max-width: 96vw;
+        padding: 18px 22px;
         box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
         color: #fff;
         box-sizing: border-box;
@@ -54,20 +55,67 @@
       .settings-panel h2 {
         margin-top: 0;
         color: #00ffff;
-        font-size: 1.1rem;
+        font-size: 1rem;
         border-bottom: 1px solid #00ffff33;
-        padding-bottom: 10px;
+        padding-bottom: 8px;
         letter-spacing: 1px;
       }
       .setting-group {
-        margin-bottom: 16px;
+        margin-bottom: 10px;
       }
       .setting-group label {
         display: block;
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         color: #aaa;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
       }
+      /* 横に並べる行（短い項目をまとめて縦の長さを減らす） */
+      .row2,
+      .row3 {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .row2 { grid-template-columns: 1fr 1fr; }
+      .row3 { grid-template-columns: 1fr 1fr 1fr; }
+      .row2 .setting-group,
+      .row3 .setting-group { margin-bottom: 0; }
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        font-size: 0.78rem;
+        color: #aaa;
+        flex-wrap: wrap;
+      }
+      .tab-bar {
+        display: flex;
+        gap: 4px;
+        margin: 0 0 12px;
+        border-bottom: 1px solid #00ffff33;
+      }
+      .tab-btn {
+        background: transparent;
+        color: #888;
+        border: 1px solid transparent;
+        border-bottom: none;
+        border-radius: 4px 4px 0 0;
+        padding: 6px 16px;
+        font-size: 0.82rem;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .tab-btn:hover { color: #fff; }
+      .tab-btn.active {
+        color: #00ffff;
+        background: rgba(0, 255, 255, 0.1);
+        border-color: #00ffff55;
+      }
+      .tab-pane { display: none; }
+      .tab-pane.active { display: block; }
+      input[type="range"] { accent-color: #00ffff; width: 100%; }
       .setting-group input[type="text"],
       .setting-group input[type="number"],
       .setting-group select {
@@ -75,10 +123,10 @@
         background: rgba(0, 0, 0, 0.5);
         border: 1px solid #444;
         color: #fff;
-        padding: 8px 12px;
+        padding: 5px 10px;
         border-radius: 4px;
         box-sizing: border-box;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
       .setting-group input:focus,
       .setting-group select:focus {
@@ -134,7 +182,8 @@
         background: #222;
         color: #00ffff;
         border: 1px solid #00ffff55;
-        padding: 0 16px;
+        white-space: nowrap;
+        padding: 0 14px;
         border-radius: 4px;
         cursor: pointer;
         font-weight: bold;
@@ -146,14 +195,14 @@
         display: flex;
         justify-content: flex-end;
         gap: 10px;
-        margin-top: 24px;
+        margin-top: 14px;
       }
       .settings-footer button {
-        padding: 8px 20px;
+        padding: 7px 18px;
         border-radius: 4px;
         cursor: pointer;
         font-weight: bold;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
       #save-settings {
         background: #00ffff;
@@ -203,128 +252,144 @@
     <div id="settings-modal" class="settings-modal">
       <div class="settings-panel">
         <h2>WIRED FRAME CONFIGURATION</h2>
-        <div id="panel-monitor-label" style="font-size: 0.75rem; color: #00ffff99; margin: -4px 0 14px; word-break: break-all;"></div>
+        <div id="panel-monitor-label" style="font-size: 0.72rem; color: #00ffff99; margin: -2px 0 10px; word-break: break-all;"></div>
 
-        <!-- 共通設定（main のパネルだけに表示） -->
-        <!-- このモニターの画像フォルダ（全モニターのパネルに表示） -->
-        <div class="setting-group">
-          <label>このモニターの画像フォルダ</label>
-          <select id="select-folder"></select>
+        <!-- タブ（main のパネルだけ。サブのパネルは「このモニター」だけなので出さない） -->
+        <div id="tab-bar" class="tab-bar">
+          <button type="button" class="tab-btn active" data-tab="monitor">このモニター</button>
+          <button type="button" class="tab-btn" data-tab="common">共通設定</button>
         </div>
 
-        <div id="global-section">
+        <!-- ===== タブ1: このモニターの設定（全パネルに表示） ===== -->
+        <div id="pane-monitor" class="tab-pane active">
           <div class="setting-group">
-            <label>画像フォルダのリスト（名前を付けて登録。全モニター共通）</label>
-            <div id="folder-rows"></div>
-            <button id="add-folder-btn" type="button" class="mini-btn">＋ フォルダを追加</button>
+            <label>このモニターの画像フォルダ</label>
+            <select id="select-folder"></select>
           </div>
+
+          <div class="row2">
+            <div class="setting-group">
+              <label>パターン切替間隔（秒）</label>
+              <input type="number" id="input-interval" value="12" min="1" />
+            </div>
+            <div class="setting-group">
+              <label>アニメーション再生モード</label>
+              <select id="select-play-mode">
+                <option value="rotation">ローテーション（順番）</option>
+                <option value="random">ランダム切替</option>
+                <option value="fixed">固定</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 固定時のパターン選択（初期非表示） -->
+          <div class="setting-group" id="fixed-pattern-container" style="display: none;">
+            <label>固定パターン選択</label>
+            <select id="select-fixed-pattern">
+              <option value="tile">Tile Mode</option>
+              <option value="cardScatter">Card Scatter</option>
+              <option value="crystalForm">Crystal Form</option>
+              <option value="cylinderWrap">Cylinder Wrap</option>
+              <option value="doubleHelix">Double Helix</option>
+              <option value="flatWave">Flat Wave</option>
+              <option value="matrixRain">Matrix Rain</option>
+              <option value="rippleRadial">Ripple Radial</option>
+              <option value="spiralFlow">Spiral Flow</option>
+              <option value="tunnelDepth">Tunnel Depth</option>
+            </select>
+          </div>
+
+          <div class="row3">
+            <div class="setting-group">
+              <label>タイルサイズ</label>
+              <input type="number" id="input-tile-size" value="2.0" step="0.1" min="0.5" max="5.0" />
+            </div>
+            <div class="setting-group">
+              <label>間隔 横</label>
+              <input type="number" id="input-spacing-x" value="4.5" step="0.1" />
+            </div>
+            <div class="setting-group">
+              <label>間隔 縦</label>
+              <input type="number" id="input-spacing-y" value="2.8" step="0.1" />
+            </div>
+          </div>
+
+          <!-- 並べ方（縦画面のモニターは列を減らして行を増やす） -->
+          <div class="row2">
+            <div class="setting-group">
+              <label>並べる枚数 横（列）1〜40</label>
+              <input type="number" id="input-cols" value="10" step="1" min="1" max="40" />
+            </div>
+            <div class="setting-group">
+              <label>並べる枚数 縦（行）1〜40</label>
+              <input type="number" id="input-rows" value="6" step="1" min="1" max="40" />
+            </div>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="input-fit-grid">
+            <span>全体が画面に収まるようカメラ距離を自動調整する</span>
+          </label>
+
           <div class="setting-group">
-            <label>共通の既定フォルダ（「共通の既定」を選んだモニターが使う）</label>
-            <select id="select-default-folder"></select>
+            <label>明るさ <span id="brightness-val">100</span>%（タイルと背景）</label>
+            <input type="range" id="input-brightness" min="10" max="100" step="5" value="100" />
           </div>
-        </div>
-        <!-- /共通設定 -->
 
-        <div class="setting-group">
-          <label>パターン切替間隔（秒）</label>
-          <input type="number" id="input-interval" value="12" min="1" />
-        </div>
-
-        <!-- 再生モード設定 -->
-        <div class="setting-group">
-          <label>アニメーション再生モード</label>
-          <select id="select-play-mode">
-            <option value="rotation">ローテーション（順番に切り替え）</option>
-            <option value="random">ランダム切替</option>
-            <option value="fixed">固定</option>
-          </select>
-        </div>
-
-        <!-- 固定時のパターン選択（初期非表示） -->
-        <div class="setting-group" id="fixed-pattern-container" style="display: none;">
-          <label>固定パターン選択</label>
-          <select id="select-fixed-pattern">
-            <option value="tile">Tile Mode</option>
-            <option value="cardScatter">Card Scatter</option>
-            <option value="crystalForm">Crystal Form</option>
-            <option value="cylinderWrap">Cylinder Wrap</option>
-            <option value="doubleHelix">Double Helix</option>
-            <option value="flatWave">Flat Wave</option>
-            <option value="matrixRain">Matrix Rain</option>
-            <option value="rippleRadial">Ripple Radial</option>
-            <option value="spiralFlow">Spiral Flow</option>
-            <option value="tunnelDepth">Tunnel Depth</option>
-          </select>
-        </div>
-
-        <!-- 🆕 追加：タイルサイズ -->
-        <div class="setting-group">
-          <label>タイルサイズ</label>
-          <input type="number" id="input-tile-size" value="2.0" step="0.1" min="0.5" max="5.0" />
-        </div>
-
-        <!-- 🆕 追加：グリッド間隔（横・縦） -->
-        <div class="setting-group">
-          <label>グリッド間隔 (横 / 縦)</label>
-          <div class="path-row">
-            <input type="number" id="input-spacing-x" value="4.5" step="0.1" />
-            <input type="number" id="input-spacing-y" value="2.8" step="0.1" />
+          <div class="row2" style="grid-template-columns: 90px 1fr;">
+            <div class="setting-group">
+              <label>背景色</label>
+              <input type="color" id="input-bg-color" value="#000000" style="height: 32px; width: 100%; padding: 2px; cursor: pointer; box-sizing: border-box;" />
+            </div>
+            <div class="setting-group">
+              <label>背景画像（オプション）</label>
+              <div class="path-row">
+                <input type="text" id="input-bg-image" placeholder="背景画像のパス..." />
+                <button id="browse-bg-btn">参照</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 並べ方（縦画面のモニターは列を減らして行を増やす） -->
-        <div class="setting-group">
-          <label>並べる枚数 (横 列 / 縦 行)　1〜40</label>
-          <div class="path-row">
-            <input type="number" id="input-cols" value="10" step="1" min="1" max="40" />
-            <input type="number" id="input-rows" value="6" step="1" min="1" max="40" />
+        <!-- ===== タブ2: 共通設定（main のパネルだけ） ===== -->
+        <div id="pane-common" class="tab-pane">
+          <div id="global-section">
+            <div class="setting-group">
+              <label>画像フォルダのリスト（名前を付けて登録。全モニター共通）</label>
+              <div id="folder-rows"></div>
+              <button id="add-folder-btn" type="button" class="mini-btn">＋ フォルダを追加</button>
+            </div>
+            <div class="setting-group">
+              <label>共通の既定フォルダ（「共通の既定」を選んだモニターが使う）</label>
+              <select id="select-default-folder"></select>
+            </div>
           </div>
-        </div>
-        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 0.82rem; color: #aaa;">
-          <input type="checkbox" id="input-fit-grid">
-          <span>全体が画面に収まるようカメラ距離を自動調整する</span>
-        </label>
 
-        <!-- 🆕 追加：背景色 -->
-        <div class="setting-group">
-          <label>背景色</label>
-          <input type="color" id="input-bg-color" value="#000000" style="height: 38px; padding: 2px; cursor: pointer; box-sizing: border-box;" />
-        </div>
-
-        <!-- 🆕 追加：背景画像パス -->
-        <div class="setting-group">
-          <label>背景画像パス（オプション）</label>
-          <div class="path-row">
-            <input type="text" id="input-bg-image" placeholder="背景画像のパス..." />
-            <button id="browse-bg-btn">参照</button>
+          <div id="global-section-2">
+            <div class="setting-group">
+              <label>スクリーンセーバーの起動ホットキー（入力欄を選んでキーを押す。Backspace / Delete で解除）</label>
+              <input type="text" id="input-hotkey" placeholder="例: Ctrl+Alt+S" readonly style="caret-color: transparent; cursor: pointer;" />
+              <div id="hotkey-status" style="font-size: 0.75rem; color: #ff8888; margin-top: 4px;"></div>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" id="input-idle-enabled">
+              <span>操作が</span>
+              <input type="number" id="input-idle-minutes" value="10" step="1" min="1" max="720" style="width: 70px; background: rgba(0,0,0,0.5); border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px;" />
+              <span>分ないとき自動で起動（操作で終了）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="input-autostart" disabled>
+              <span>Windows にログインしたら自動で常駐を始める</span>
+            </label>
+            <div id="autostart-status" style="font-size: 0.75rem; color: #ff8888; margin: -6px 0 8px;"></div>
+            <label class="check-row">
+              <input type="checkbox" id="input-multi-monitor">
+              <span>マルチモニター連動（全画面一括展開）を有効にする</span>
+            </label>
           </div>
-        </div>
-
-        <div id="global-section-2">
-          <div class="setting-group" style="margin-top: 16px;">
-            <label>スクリーンセーバーの起動ホットキー（入力欄を選んでキーを押す。Backspace / Delete で解除）</label>
-            <input type="text" id="input-hotkey" placeholder="例: Ctrl+Alt+S" readonly style="caret-color: transparent; cursor: pointer;" />
-            <div id="hotkey-status" style="font-size: 0.75rem; color: #ff8888; margin-top: 4px;"></div>
-          </div>
-          <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; cursor: pointer; font-size: 0.82rem; color: #aaa; flex-wrap: wrap;">
-            <input type="checkbox" id="input-idle-enabled">
-            <span>キー・マウス操作が</span>
-            <input type="number" id="input-idle-minutes" value="10" step="1" min="1" max="720" style="width: 70px; background: rgba(0,0,0,0.5); border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px;" />
-            <span>分ない間は、自動で起動する（操作すると終了）</span>
-          </label>
-          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
-            <input type="checkbox" id="input-autostart" disabled>
-            <span>Windows にログインしたら自動で常駐を始める</span>
-          </label>
-          <div id="autostart-status" style="font-size: 0.75rem; color: #ff8888; margin-top: 4px;"></div>
-          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
-            <input type="checkbox" id="input-multi-monitor">
-            <span>マルチモニター連動（全画面一括展開）を有効にする</span>
-          </label>
         </div>
 
         <div class="settings-footer">
-          <button id="reset-settings" class="btn" style="background: transparent; color: #ff5555; border: 1px solid #ff555555;">このモニターをデフォルトに戻す</button>
+          <button id="reset-settings" class="btn" style="background: transparent; color: #ff5555; border: 1px solid #ff555555;">このモニターを初期値に戻す</button>
           <div style="flex-grow: 1;"></div>
           <button id="close-settings">キャンセル</button>
           <button id="save-settings">適用して保存</button>
