@@ -23,18 +23,21 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(6px);
+        /* 後ろの画面（セーバーの動き）を見ながら調整できるよう、暗くもぼかしもしない */
+        background: transparent;
+        pointer-events: none;
         z-index: 200;
         display: flex;
         justify-content: center;
         align-items: center;
         opacity: 0;
-        pointer-events: none;
         transition: opacity 0.3s ease;
       }
       #settings-modal.open {
         opacity: 1;
+      }
+      /* パネルだけが操作を受ける（ドラッグ移動できる） */
+      #settings-modal.open .settings-panel {
         pointer-events: auto;
       }
 
@@ -42,7 +45,7 @@
       .settings-panel {
         max-height: 94vh;
         overflow-y: auto; /* 項目が増えても、画面が低いモニターで保存ボタンが見切れないように */
-        background: rgba(15, 15, 25, 0.95);
+        background: rgba(15, 15, 25, 0.92);
         border: 1px solid #00ffff66;
         border-radius: 8px;
         width: 560px;
@@ -53,6 +56,9 @@
         box-sizing: border-box;
       }
       .settings-panel h2 {
+        cursor: move; /* タイトルをドラッグしてパネルを動かす（ダブルクリックで中央に戻す） */
+        user-select: none;
+        touch-action: none;
         margin-top: 0;
         color: #00ffff;
         font-size: 1rem;
@@ -115,6 +121,14 @@
       }
       .tab-pane { display: none; }
       .tab-pane.active { display: block; }
+      .mode-params { margin: 6px 0 10px; font-size: 0.8rem; }
+      .mode-params summary { cursor: pointer; color: #00ffffcc; margin-bottom: 6px; }
+      .param-row { display: grid; grid-template-columns: 1fr 70px; gap: 2px 8px; align-items: center; margin-bottom: 6px; }
+      .param-row label { grid-column: 1 / 3; font-size: 0.72rem; color: #aab; }
+      .param-row output { text-align: right; font-variant-numeric: tabular-nums; color: #00ffff; }
+      /* 表示モードに無関係な欄を隠す */
+      #pane-monitor:not([data-mode="tiles"]) .tile-only { display: none !important; }
+      #pane-monitor:not([data-mode="noise1"]) .noise1-only { display: none !important; }
       input[type="range"] { accent-color: #00ffff; width: 100%; }
       .setting-group input[type="text"],
       .setting-group input[type="number"],
@@ -261,13 +275,47 @@
         </div>
 
         <!-- ===== タブ1: このモニターの設定（全パネルに表示） ===== -->
-        <div id="pane-monitor" class="tab-pane active">
-          <div class="setting-group">
+        <div id="pane-monitor" class="tab-pane active" data-mode="tiles">
+          <div class="row2">
+            <div class="setting-group">
+              <label>表示モード</label>
+              <select id="select-mode">
+                <option value="tiles">画像タイル</option>
+                <option value="noise1">ノイズ1（粒子）</option>
+                <option value="noise2">ノイズ2（Mandelbulb）</option>
+              </select>
+            </div>
+            <div class="setting-group">
+              <label>FPS 上限（下げると軽くなる）</label>
+              <select id="select-fps">
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="60">60</option>
+                <option value="120">120</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-group noise1-only">
+            <label>粒子の数（多いほど綺麗だが重い）</label>
+            <select id="select-noise-size">
+              <option value="256">少ない（約 6.5 万）</option>
+              <option value="384">標準（約 15 万）</option>
+              <option value="512">多い（約 26 万）</option>
+            </select>
+          </div>
+          <!-- モードごとの調整項目（src/modes/params.ts の定義から自動で作る） -->
+          <details id="mode-params-box" class="mode-params" style="display: none;">
+            <summary>詳細な調整</summary>
+            <div id="mode-params"></div>
+            <button id="reset-mode-params" type="button" class="mini-btn">この調整を初期値に戻す</button>
+          </details>
+
+          <div class="setting-group tile-only">
             <label>このモニターの画像フォルダ</label>
             <select id="select-folder"></select>
           </div>
 
-          <div class="row2">
+          <div class="row2 tile-only">
             <div class="setting-group">
               <label>パターン切替間隔（秒）</label>
               <input type="number" id="input-interval" value="12" min="1" />
@@ -283,7 +331,7 @@
           </div>
 
           <!-- 固定時のパターン選択（初期非表示） -->
-          <div class="setting-group" id="fixed-pattern-container" style="display: none;">
+          <div class="setting-group tile-only" id="fixed-pattern-container" style="display: none;">
             <label>固定パターン選択</label>
             <select id="select-fixed-pattern">
               <option value="tile">Tile Mode</option>
@@ -299,7 +347,7 @@
             </select>
           </div>
 
-          <div class="row3">
+          <div class="row3 tile-only">
             <div class="setting-group">
               <label>タイルサイズ</label>
               <input type="number" id="input-tile-size" value="2.0" step="0.1" min="0.5" max="5.0" />
@@ -315,7 +363,7 @@
           </div>
 
           <!-- 並べ方（縦画面のモニターは列を減らして行を増やす） -->
-          <div class="row2">
+          <div class="row2 tile-only">
             <div class="setting-group">
               <label>並べる枚数 横（列）1〜40</label>
               <input type="number" id="input-cols" value="10" step="1" min="1" max="40" />
@@ -325,17 +373,17 @@
               <input type="number" id="input-rows" value="6" step="1" min="1" max="40" />
             </div>
           </div>
-          <label class="check-row">
+          <label class="check-row tile-only">
             <input type="checkbox" id="input-fit-grid">
             <span>全体が画面に収まるようカメラ距離を自動調整する</span>
           </label>
 
           <div class="setting-group">
-            <label>明るさ <span id="brightness-val">100</span>%（タイルと背景）</label>
+            <label>明るさ <span id="brightness-val">100</span>%</label>
             <input type="range" id="input-brightness" min="10" max="100" step="5" value="100" />
           </div>
 
-          <div class="row2" style="grid-template-columns: 90px 1fr;">
+          <div class="row2 tile-only" style="grid-template-columns: 90px 1fr;">
             <div class="setting-group">
               <label>背景色</label>
               <input type="color" id="input-bg-color" value="#000000" style="height: 32px; width: 100%; padding: 2px; cursor: pointer; box-sizing: border-box;" />
@@ -374,7 +422,11 @@
               <input type="checkbox" id="input-idle-enabled">
               <span>操作が</span>
               <input type="number" id="input-idle-minutes" value="10" step="1" min="1" max="720" style="width: 70px; background: rgba(0,0,0,0.5); border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px;" />
-              <span>分ないとき自動で起動（操作で終了）</span>
+              <span>分ないとき自動で起動</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="input-idle-exit">
+              <span>自動で起動したセーバーは、キー・マウス操作で終了する（OFF なら ESC のみ。マウスで画面を動かせる）</span>
             </label>
             <label class="check-row">
               <input type="checkbox" id="input-autostart" disabled>

@@ -127,6 +127,8 @@ pub fn run() {
             // 無操作を見張る（設定で ON のときだけ自動起動。Windows のみ）
             let idle_handle = app.handle().clone();
             std::thread::spawn(move || idle::watch(idle_handle));
+            let esc_handle = app.handle().clone();
+            std::thread::spawn(move || idle::watch_esc(esc_handle));
 
             // トレイメニューの作成（「設定」「デバッグ表示」「終了」）
             let settings_item = MenuItem::with_id(app, "settings", "設定", true, None::<String>)?;

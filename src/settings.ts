@@ -15,6 +15,7 @@
 
 import { dlog, dwarn, derr } from './debug';
 import { fetchCurrentMonitor, monitorKeyOf } from './monitor';
+import { MODE_PARAMS, clampParams, type ParamValues } from './modes/params';
 
 /** 名前を付けた画像フォルダ。リストは全モニター共通。 */
 export type FolderEntry = { id: string; name: string; path: string };
@@ -26,9 +27,14 @@ export type GlobalSettings = {
   hotkey: string; // 起動ホットキー（例 'Ctrl+Alt+S'）。空なら無効
   idleEnabled: boolean; // 無操作で自動起動するか
   idleMinutes: number; // 自動起動までの無操作時間（分、整数）
+  idleExitOnInput: boolean; // 自動起動したセーバーを、キー・マウス操作で終了するか（false なら ESC だけ）
 };
 
 export type MonitorSettings = {
+  mode: string; // 'tiles'（画像タイル）| 'noise1'（カールノイズの粒子）| 'noise2'（Mandelbulb）
+  noiseSize: number; // ノイズの粒子テクスチャの一辺（粒子数は二乗）。負荷に直結する
+  fps: number; // FPS の上限（整数）
+  modeParams: Record<string, ParamValues>; // モードごとの調整値（src/modes/params.ts）。無い項目は既定値
   intervalSec: number;
   playMode: string; // 'rotation' | 'random' | 'fixed'
   fixedPattern: string;
@@ -57,9 +63,14 @@ export const DEFAULT_GLOBAL: GlobalSettings = {
   hotkey: '',
   idleEnabled: false,
   idleMinutes: 10,
+  idleExitOnInput: false,
 };
 
 export const DEFAULT_MONITOR: MonitorSettings = {
+  mode: 'tiles',
+  noiseSize: 384,
+  fps: 60,
+  modeParams: {},
   intervalSec: 12,
   playMode: 'rotation',
   fixedPattern: 'tile',
@@ -87,6 +98,7 @@ const KEY_MONITOR_DEFAULT = 'wiredframe_monitor_default_v2';
 const KEY_MONITOR_PREFIX = 'wiredframe_monitor_v2:';
 
 const PLAY_MODES = ['rotation', 'random', 'fixed'];
+export const MODES = ['tiles', 'noise1', 'noise2'];
 // 0 以下だと壊れる項目
 const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY']);
 // 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）
@@ -94,6 +106,10 @@ export const GRID_MIN = 1;
 export const GRID_MAX = 40;
 export const BRIGHTNESS_MIN = 10;
 export const BRIGHTNESS_MAX = 100;
+export const NOISE_SIZE_MIN = 128;
+export const NOISE_SIZE_MAX = 512;
+export const FPS_MIN = 10;
+export const FPS_MAX = 120;
 export const IDLE_MIN = 1;
 export const IDLE_MAX = 720;
 const INT_RANGES: Record<string, [number, number]> = {
@@ -101,6 +117,8 @@ const INT_RANGES: Record<string, [number, number]> = {
   rows: [GRID_MIN, GRID_MAX],
   idleMinutes: [IDLE_MIN, IDLE_MAX],
   brightness: [BRIGHTNESS_MIN, BRIGHTNESS_MAX],
+  noiseSize: [NOISE_SIZE_MIN, NOISE_SIZE_MAX],
+  fps: [FPS_MIN, FPS_MAX],
 };
 
 // ---- 内部ヘルパー ----------------------------------------------------------
@@ -148,7 +166,7 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
     return out as T;
   }
   for (const [k, def] of Object.entries(defaults) as [string, unknown][]) {
-    if (k === 'folders') continue; // 配列。normalizeGlobal で個別に検証する
+    if (k === 'folders' || k === 'modeParams') continue; // 配列。normalizeGlobal で個別に検証する
     if (!(k in raw)) continue;
     const v = raw[k];
     if (typeof v !== typeof def) {
@@ -168,9 +186,32 @@ function sanitize<T extends object>(raw: unknown, defaults: T, where: string): T
       dwarn(`設定: ${where}.playMode が不正（${String(v)}）。初期値 ${String(def)} を使う`);
       continue;
     }
+    if (k === 'mode' && !MODES.includes(v as string)) {
+      dwarn(`設定: ${where}.mode が不正（${String(v)}）。初期値 ${String(def)} を使う`);
+      continue;
+    }
     out[k] = v;
   }
+  if ('modeParams' in defaults) {
+    (out as Record<string, unknown>).modeParams = sanitizeModeParams(isObject(raw) ? raw.modeParams : undefined, where);
+  }
   return out as T;
+}
+
+/** モードごとの調整値を検証する。未知のモードは捨て、値は定義の範囲に丸める。 */
+function sanitizeModeParams(v: unknown, where: string): Record<string, ParamValues> {
+  const out: Record<string, ParamValues> = {};
+  if (v === undefined) return out;
+  if (!isObject(v)) {
+    dwarn(`設定: ${where}.modeParams がオブジェクトではない。無視する:`, v);
+    return out;
+  }
+  for (const [mode, vals] of Object.entries(v)) {
+    const defs = MODE_PARAMS[mode];
+    if (!defs) continue;
+    out[mode] = clampParams(defs, vals);
+  }
+  return out;
 }
 
 // ---- 画像フォルダのリスト ---------------------------------------------------

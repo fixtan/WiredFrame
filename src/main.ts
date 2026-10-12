@@ -1,5 +1,9 @@
 import { AppManager } from './core/AppManager';
 import { TileMode } from './modes/TileMode';
+import { NoiseMode1 } from './modes/NoiseMode1';
+import { NoiseMode2 } from './modes/NoiseMode2';
+import type { IMode } from './core/IMode';
+import { MODE_PARAMS, clampParams, paramDefaults, type ParamValues } from './modes/params';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
@@ -33,8 +37,11 @@ initDebug();
 const appContainer = document.querySelector('#app') as HTMLElement;
 if (appContainer) {
   const manager = new AppManager(appContainer);
-  const tileMode = new TileMode();
-  manager.switchMode(tileMode);
+  // 表示モード。切り替えるときは作り直す（tileMode / noiseMode のどちらかだけが生きている）
+  let tileMode: TileMode | null = null;
+  let noiseMode: IMode | null = null; // ノイズ系（NoiseMode1 / NoiseMode2）
+  let currentModeKey = '';
+  let currentNoiseSize = 0;
 
   const settingsModal = document.getElementById('settings-modal');
   const closeBtn = document.getElementById('close-settings');
@@ -59,6 +66,12 @@ if (appContainer) {
   const colsInput = document.getElementById('input-cols') as HTMLInputElement;
   const rowsInput = document.getElementById('input-rows') as HTMLInputElement;
   const fitGridInput = document.getElementById('input-fit-grid') as HTMLInputElement;
+  const modeSelect = document.getElementById('select-mode') as HTMLSelectElement;
+  const fpsSelect = document.getElementById('select-fps') as HTMLSelectElement;
+  const noiseSizeSelect = document.getElementById('select-noise-size') as HTMLSelectElement;
+  const paramsBox = document.getElementById('mode-params-box') as HTMLDetailsElement;
+  const paramsList = document.getElementById('mode-params') as HTMLElement;
+  const resetParamsBtn = document.getElementById('reset-mode-params');
   const brightnessInput = document.getElementById('input-brightness') as HTMLInputElement;
   const brightnessVal = document.getElementById('brightness-val') as HTMLElement;
   const tabBar = document.getElementById('tab-bar') as HTMLElement;
@@ -74,6 +87,7 @@ if (appContainer) {
   const autostartStatus = document.getElementById('autostart-status') as HTMLElement;
   const idleEnabledInput = document.getElementById('input-idle-enabled') as HTMLInputElement;
   const idleMinutesInput = document.getElementById('input-idle-minutes') as HTMLInputElement;
+  const idleExitInput = document.getElementById('input-idle-exit') as HTMLInputElement;
 
   const isMain = getCurrentWindow().label === 'main';
   const panelMonitorLabel = document.getElementById('panel-monitor-label');
@@ -105,6 +119,8 @@ if (appContainer) {
   // パネルで編集中の画像フォルダのリストと既定（main だけが編集する。保存するまで反映しない）
   let draftFolders: FolderEntry[] = [];
   let draftDefaultId = '';
+  // パネルで編集中のモード別の調整値（全モード分。保存するときにそのまま保存する）
+  let paramsAll: Record<string, ParamValues> = {};
 
   const isPanelOpen = () => settingsModal?.classList.contains('open') ?? false;
 
@@ -113,6 +129,12 @@ if (appContainer) {
     draftFolders = settings.folders.map((f) => ({ ...f }));
     draftDefaultId = settings.defaultFolderId;
     renderFolderUi(settings.folderId);
+    modeSelect.value = settings.mode;
+    fpsSelect.value = settings.fps.toString();
+    noiseSizeSelect.value = settings.noiseSize.toString();
+    paneMonitor.dataset.mode = settings.mode;
+    paramsAll = JSON.parse(JSON.stringify(settings.modeParams)) as Record<string, ParamValues>;
+    renderModeParams(settings.mode);
     intervalInput.value = settings.intervalSec.toString();
     playModeSelect.value = settings.playMode;
     fixedPatternSelect.value = settings.fixedPattern;
@@ -131,14 +153,64 @@ if (appContainer) {
     hotkeyInput.value = settings.hotkey;
     idleEnabledInput.checked = settings.idleEnabled;
     idleMinutesInput.value = settings.idleMinutes.toString();
+    idleExitInput.checked = settings.idleExitOnInput;
   };
 
-  // 🎬 設定を TileMode に反映する。reloadDir=true のときは画像フォルダも読み直す
-  const applyToTileMode = async (settings: AppSettings, reloadDir: boolean) => {
-    tileMode.setSwitchInterval(settings.intervalSec);
-    tileMode.setPlayConfig(settings.playMode, settings.fixedPattern);
+  // 🎬 設定を表示モードに反映する。reloadDir=true のときは画像フォルダも読み直す
+  const applyToMode = async (settings: AppSettings, reloadDir: boolean) => {
+    manager.setFpsLimit(settings.fps);
+
+    // モードの切り替え（タイル ⇔ ノイズ）。ノイズは粒子数が変わったときも作り直す
+    const needSwitch =
+      settings.mode !== currentModeKey || (settings.mode === 'noise1' && settings.noiseSize !== currentNoiseSize);
+    if (needSwitch) {
+      let next: IMode;
+      if (settings.mode === 'noise1' || settings.mode === 'noise2') {
+        noiseMode = settings.mode === 'noise2' ? new NoiseMode2() : new NoiseMode1(settings.noiseSize);
+        tileMode = null;
+        next = noiseMode;
+      } else {
+        tileMode = new TileMode();
+        noiseMode = null;
+        next = tileMode;
+      }
+      try {
+        manager.switchMode(next);
+      } catch (e) {
+        derr(`モード ${settings.mode} の開始に失敗:`, e);
+        // ノイズが動かない環境（GPU が浮動小数テクスチャに非対応など）では、タイルに戻す
+        if (settings.mode !== 'tiles') {
+          noiseMode = null;
+          tileMode = new TileMode();
+          manager.switchMode(tileMode);
+          currentModeKey = 'tiles';
+          currentNoiseSize = 0;
+          lastAppearance = '';
+          lastDir = null;
+        }
+        throw e;
+      }
+      currentModeKey = settings.mode;
+      currentNoiseSize = settings.mode === 'noise1' ? settings.noiseSize : 0;
+      // 新しく作ったので、前回の適用内容の記憶は捨てる
+      lastAppearance = '';
+      lastDir = null;
+      reloadDir = true;
+    }
+
+    if (noiseMode) {
+      noiseMode.setBrightness?.(settings.brightness);
+      noiseMode.setParams?.(settings.modeParams[settings.mode] ?? {});
+      manager.setRenderScale(noiseMode.getRenderScale?.() ?? 1);
+      return;
+    }
+    const tm = tileMode;
+    if (!tm) return;
+
+    tm.setSwitchInterval(settings.intervalSec);
+    tm.setPlayConfig(settings.playMode, settings.fixedPattern);
     // 明るさは、タイルを作り直さずにその場で反映する（背景の作り直しより前に値を渡す）
-    tileMode.setBrightness(settings.brightness);
+    tm.setBrightness(settings.brightness);
 
     const appearance = {
       tileSize: settings.tileSize,
@@ -153,12 +225,12 @@ if (appContainer) {
     const appearanceKey = JSON.stringify(appearance);
     if (reloadDir || appearanceKey !== lastAppearance) {
       lastAppearance = appearanceKey;
-      await tileMode.setAppearanceConfig(appearance);
+      await tm.setAppearanceConfig(appearance);
     }
     // 画像フォルダは、強制されたとき、またはこのモニターで使うフォルダが変わったときに読み直す
     if (reloadDir || settings.targetDir !== lastDir) {
       lastDir = settings.targetDir;
-      await tileMode.updateImageDirectory(settings.targetDir);
+      await tm.updateImageDirectory(settings.targetDir);
     }
   };
 
@@ -170,6 +242,7 @@ if (appContainer) {
         multiMonitor: s.multiMonitor,
         idleEnabled: s.idleEnabled,
         idleMinutes: s.idleMinutes,
+        idleExitOnInput: s.idleExitOnInput,
         hotkey: s.hotkey,
       },
     })
@@ -187,7 +260,7 @@ if (appContainer) {
       const settings = loadEffectiveSettings(myMonitorKey, reason);
       fillForm(settings);
       if (isMain) pushSaverConfig(settings);
-      await applyToTileMode(settings, reloadDir);
+      await applyToMode(settings, reloadDir);
       dirty = false;
     });
 
@@ -405,6 +478,10 @@ if (appContainer) {
     const rows = grid(rowsInput, DEFAULT_MONITOR.rows);
     if (intervalSec === null || tileSize === null || spacingX === null || spacingY === null || cols === null || rows === null) return null;
     return {
+      mode: modeSelect.value,
+      noiseSize: Number(noiseSizeSelect.value) || DEFAULT_MONITOR.noiseSize,
+      modeParams: paramsAll,
+      fps: Number(fpsSelect.value) || DEFAULT_MONITOR.fps,
       intervalSec,
       playMode: playModeSelect.value,
       fixedPattern: fixedPatternSelect.value,
@@ -432,13 +509,103 @@ if (appContainer) {
       // main は編集中のリストで、サブは保存済みのリストで、このモニターのフォルダを決める
       const g = currentGlobal();
       const dir = resolveFolder(g, m.folderId).folder?.path ?? '';
-      void enqueue('プレビュー', () => applyToTileMode({ ...g, ...m, targetDir: dir }, false));
+      void enqueue('プレビュー', () => applyToMode({ ...g, ...m, targetDir: dir }, false));
     }, 400);
   };
-  for (const el of [intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, brightnessInput, bgColorInput, bgImageInput]) {
+  for (const el of [modeSelect, fpsSelect, noiseSizeSelect, intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, brightnessInput, bgColorInput, bgImageInput]) {
     el?.addEventListener('input', schedulePreview);
     el?.addEventListener('change', schedulePreview);
   }
+
+  modeSelect.addEventListener('change', () => {
+    paneMonitor.dataset.mode = modeSelect.value;
+    renderModeParams(modeSelect.value);
+  });
+
+  // ---- モードごとの調整スライダー（src/modes/params.ts の定義から作る） ----
+  function renderModeParams(mode: string) {
+    const defs = MODE_PARAMS[mode];
+    paramsList.replaceChildren();
+    paramsBox.style.display = defs ? '' : 'none';
+    if (!defs) return;
+    const values = clampParams(defs, paramsAll[mode]);
+    paramsAll[mode] = values;
+    const decimals = (step: number) => (step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step))));
+    for (const d of defs) {
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      const label = document.createElement('label');
+      label.textContent = d.label;
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.min = String(d.min);
+      range.max = String(d.max);
+      range.step = String(d.step);
+      range.value = String(values[d.key]);
+      const out = document.createElement('output');
+      out.textContent = values[d.key].toFixed(decimals(d.step));
+      range.addEventListener('input', () => {
+        const v = Number(range.value);
+        (paramsAll[mode] ||= {})[d.key] = v;
+        out.textContent = v.toFixed(decimals(d.step));
+        schedulePreview();
+      });
+      row.append(label, range, out);
+      paramsList.append(row);
+    }
+  }
+  resetParamsBtn?.addEventListener('click', () => {
+    const defs = MODE_PARAMS[modeSelect.value];
+    if (!defs) return;
+    paramsAll[modeSelect.value] = paramDefaults(defs);
+    renderModeParams(modeSelect.value);
+    schedulePreview();
+  });
+
+  // ---- パネルのドラッグ移動（後ろの画面を見ながら調整できるように） ----
+  const panelEl = document.querySelector('.settings-panel') as HTMLElement;
+  const panelHandle = panelEl.querySelector('h2') as HTMLElement;
+  let panelDx = 0; // 初期位置（中央）からのずれ。ドラッグ中はここを更新して placePanel で整える
+  let panelDy = 0;
+  let appliedDx = 0; // 実際に transform へ入れている値（画面上の位置から中央の位置を逆算するため）
+  let appliedDy = 0;
+  const placePanel = () => {
+    // 画面外に出て取り戻せなくならないよう、タイトルが見える範囲に収める
+    const r = panelEl.getBoundingClientRect();
+    const baseLeft = r.left - appliedDx;
+    const baseTop = r.top - appliedDy;
+    panelDx = Math.min(window.innerWidth - 80 - baseLeft, Math.max(80 - (baseLeft + r.width), panelDx));
+    panelDy = Math.min(window.innerHeight - 40 - baseTop, Math.max(-baseTop, panelDy));
+    appliedDx = panelDx;
+    appliedDy = panelDy;
+    panelEl.style.transform = `translate(${panelDx}px, ${panelDy}px)`;
+  };
+  panelHandle.addEventListener('pointerdown', (e) => {
+    const sx = e.clientX - panelDx;
+    const sy = e.clientY - panelDy;
+    panelHandle.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      panelDx = ev.clientX - sx;
+      panelDy = ev.clientY - sy;
+      placePanel();
+    };
+    const up = () => {
+      panelHandle.removeEventListener('pointermove', move);
+      panelHandle.removeEventListener('pointerup', up);
+      panelHandle.removeEventListener('pointercancel', up);
+    };
+    panelHandle.addEventListener('pointermove', move);
+    panelHandle.addEventListener('pointerup', up);
+    panelHandle.addEventListener('pointercancel', up);
+  });
+  panelHandle.addEventListener('dblclick', () => {
+    panelDx = 0;
+    panelDy = 0;
+    placePanel();
+  });
+  window.addEventListener('resize', () => {
+    if (isPanelOpen()) placePanel();
+  });
 
   brightnessInput.addEventListener('input', () => {
     brightnessVal.textContent = brightnessInput.value;
@@ -588,6 +755,7 @@ if (appContainer) {
         multiMonitor: multiMonitorInput.checked,
         hotkey: hotkeyInput.value.trim(),
         idleEnabled: idleEnabledInput.checked,
+        idleExitOnInput: idleExitInput.checked,
         idleMinutes:
           Number.isInteger(minutes) && minutes >= IDLE_MIN && minutes <= IDLE_MAX
             ? minutes

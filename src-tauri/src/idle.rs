@@ -4,8 +4,11 @@
 //! 1 秒おきに読む。フックは使わない。Windows 以外では何もしない。
 //!
 //! - セーバーが動いておらず、設定で ON で、無操作が指定時間を超えたら、自動起動する。
-//! - 自動起動したセーバーは、起動後に新しい操作があったら終了する（ESC でなくてもよい）。
-//!   手動起動（ホットキー・トレイ）は、ESC だけで終了する。
+//! - 自動起動したセーバーは、設定（`idle_exit_on_input`）が ON なら、起動後に新しい操作があったら終了する。
+//!   OFF（既定）なら、ESC だけで終了する（マウスで画面を回したりできる）。
+//!   自動起動ではウィンドウにキーボードのフォーカスが来ないことがあるので、ESC は `watch_esc` が
+//!   システム全体で見張る（`GetAsyncKeyState`）。
+//!   手動起動（ホットキー・トレイ）は、ESC だけで終了する（画面側のキー入力で止まる）。
 //! - 動画再生中などは判断しない（操作がなければ起動する。Windows の標準のスクリーンセーバーとは違う）。
 
 use tauri::AppHandle;
@@ -40,6 +43,20 @@ fn ticks() -> Option<(u32, u32)> {
     None
 }
 
+/// ESC キーが今押されているか（どのウィンドウにフォーカスがあっても分かる）。
+#[cfg(windows)]
+fn esc_down() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+    // SAFETY: 仮想キーコードを渡すだけの単純な API。最上位ビットが「今押されている」。
+    let state = unsafe { GetAsyncKeyState(VK_ESCAPE as i32) };
+    (state as u16) & 0x8000 != 0
+}
+
+#[cfg(not(windows))]
+fn esc_down() -> bool {
+    false
+}
+
 /// 無操作の長さ（ミリ秒）。GetTickCount は約 49.7 日で一周するので wrapping で引く。
 fn idle_ms(now: u32, last_input: u32) -> u32 {
     now.wrapping_sub(last_input)
@@ -62,9 +79,9 @@ pub fn watch(app: AppHandle) {
         let Some((now, last)) = ticks() else { continue };
 
         if saver::is_running() {
-            // 自動起動したセーバーは、起動後の操作で終了する
+            // 自動起動したセーバーは、設定が ON なら、起動後の操作で終了する（OFF なら ESC だけ。watch_esc が見張る）
             if let Some(since) = saver::auto_started_at() {
-                if input_after(last, since, GRACE_MS) {
+                if saver::config().idle_exit_on_input && input_after(last, since, GRACE_MS) {
                     saver::stop(&app, "idle-input");
                 }
             }
@@ -83,6 +100,28 @@ pub fn watch(app: AppHandle) {
                 &format!("無操作が {} 分続いたのでセーバーを自動起動する", cfg.idle_minutes),
             );
             saver::start_auto(&app, now);
+        }
+    }
+}
+
+/// 自動起動したセーバーを、ESC で終了させる（設定で「操作で終了」が OFF のとき）。
+/// 0.05 秒おきに ESC の状態を見る。起動直後の猶予内は無視する。
+pub fn watch_esc(app: AppHandle) {
+    if ticks().is_none() {
+        return;
+    }
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if !saver::is_running() {
+            continue;
+        }
+        let Some(since) = saver::auto_started_at() else { continue };
+        if saver::config().idle_exit_on_input {
+            continue; // 操作での終了が ON のときは、watch が見る
+        }
+        let Some((now, _)) = ticks() else { continue };
+        if now.wrapping_sub(since) > GRACE_MS && esc_down() {
+            saver::stop(&app, "esc-global");
         }
     }
 }

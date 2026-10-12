@@ -28,6 +28,8 @@ pub struct SaverConfig {
     pub idle_enabled: bool,
     /// 自動起動までの無操作時間（分）。
     pub idle_minutes: u32,
+    /// 自動起動したセーバーを、キー・マウス操作で終了するか。false なら ESC だけで終了する。
+    pub idle_exit_on_input: bool,
     /// 起動ホットキー（例 `Ctrl+Alt+S`）。空なら無効。
     pub hotkey: String,
 }
@@ -38,6 +40,7 @@ impl SaverConfig {
             multi_monitor: false,
             idle_enabled: false,
             idle_minutes: 10,
+            idle_exit_on_input: false,
             hotkey: String::new(),
         }
     }
