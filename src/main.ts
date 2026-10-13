@@ -80,6 +80,7 @@ if (appContainer) {
   const colsInput = document.getElementById('input-cols') as HTMLInputElement;
   const rowsInput = document.getElementById('input-rows') as HTMLInputElement;
   const fitGridInput = document.getElementById('input-fit-grid') as HTMLInputElement;
+  const imageMaxSizeSelect = document.getElementById('input-image-max-size') as HTMLSelectElement;
   const modeSelect = document.getElementById('select-mode') as HTMLSelectElement;
   const fpsSelect = document.getElementById('select-fps') as HTMLSelectElement;
   const noiseSizeSelect = document.getElementById('select-noise-size') as HTMLSelectElement;
@@ -159,6 +160,7 @@ if (appContainer) {
     colsInput.value = settings.cols.toString();
     rowsInput.value = settings.rows.toString();
     fitGridInput.checked = settings.fitGrid;
+    imageMaxSizeSelect.value = [0, 2048, 1024, 512].includes(settings.imageMaxSize) ? String(settings.imageMaxSize) : String(DEFAULT_MONITOR.imageMaxSize);
     brightnessInput.value = settings.brightness.toString();
     brightnessVal.textContent = settings.brightness.toString();
     bgColorInput.value = settings.bgColor;
@@ -234,6 +236,7 @@ if (appContainer) {
       cols: settings.cols,
       rows: settings.rows,
       fitGrid: settings.fitGrid,
+      imageMaxSize: settings.imageMaxSize,
       bgColor: settings.bgColor,
       bgImagePath: settings.bgImagePath,
     };
@@ -507,6 +510,7 @@ if (appContainer) {
       cols,
       rows,
       fitGrid: fitGridInput.checked,
+      imageMaxSize: [0, 2048, 1024, 512].includes(Number(imageMaxSizeSelect.value)) ? Number(imageMaxSizeSelect.value) : DEFAULT_MONITOR.imageMaxSize,
       brightness: Number.isInteger(Number(brightnessInput.value)) ? Number(brightnessInput.value) : DEFAULT_MONITOR.brightness,
       bgColor: bgColorInput.value,
       bgImagePath: bgImageInput.value,
@@ -527,7 +531,7 @@ if (appContainer) {
       void enqueue('プレビュー', () => applyToMode({ ...g, ...m, targetDir: dir }, false));
     }, 400);
   };
-  for (const el of [modeSelect, fpsSelect, noiseSizeSelect, intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, brightnessInput, bgColorInput, bgImageInput]) {
+  for (const el of [modeSelect, fpsSelect, noiseSizeSelect, intervalInput, playModeSelect, fixedPatternSelect, folderSelect, tileSizeInput, spacingXInput, spacingYInput, colsInput, rowsInput, fitGridInput, imageMaxSizeSelect, brightnessInput, bgColorInput, bgImageInput]) {
     el?.addEventListener('input', schedulePreview);
     el?.addEventListener('change', schedulePreview);
   }

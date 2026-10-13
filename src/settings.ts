@@ -45,6 +45,7 @@ export type MonitorSettings = {
   cols: number; // 横に並べる枚数（整数）
   rows: number; // 縦に並べる枚数（整数）
   fitGrid: boolean; // true: グリッド全体が画面に収まるようカメラ距離を自動調整
+  imageMaxSize: number; // 画像を軽くする。0 は OFF（元の画質）、それ以外は長辺をこの値まで縮小して読む（初期値 2048）
   brightness: number; // 明るさ（%、整数 10〜100）。タイルと背景に掛ける
   bgColor: string;
   bgImagePath: string;
@@ -81,6 +82,7 @@ export const DEFAULT_MONITOR: MonitorSettings = {
   cols: 10,
   rows: 6,
   fitGrid: false,
+  imageMaxSize: 2048,
   brightness: 100,
   bgColor: '#000000',
   bgImagePath: '',

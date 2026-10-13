@@ -381,6 +381,15 @@
             <input type="checkbox" id="input-fit-grid">
             <span>全体が画面に収まるようカメラ距離を自動調整する</span>
           </label>
+          <div class="setting-group tile-only">
+            <label>画像を軽くする（縮小して読む。画質は下がります）</label>
+            <select id="input-image-max-size">
+              <option value="0">OFF（元の画質）</option>
+              <option value="2048" selected>ON：長辺 2048px</option>
+              <option value="1024">ON：長辺 1024px</option>
+              <option value="512">ON：長辺 512px</option>
+            </select>
+          </div>
 
           <div class="setting-group">
             <label>明るさ <span id="brightness-val">100</span>%</label>

@@ -30,9 +30,12 @@ export class TileMode implements IMode {
   private cols: number = 10;
   private rows: number = 6;
   private fitGrid: boolean = false;
+  private imageMaxSize: number = 0; // 0: 元の大きさのまま。>0: 長辺をこの値まで縮小して読む（画質と引き換えに軽くする）
   private brightness: number = 100; // %。タイルと背景に掛ける
   // タイル再構築の世代。古い世代のテクスチャ読み込みが完了しても使わない（解放済みのため）
   private buildGen = 0;
+  // 今のタイルが使っているテクスチャ（同じ画像のタイルで共有するので、まとめて 1 回ずつ解放する）
+  private textures: THREE.Texture[] = [];
   private bgColor: string = '#000000';
   private bgImagePath: string = '';
   private currentDir: string = '';
@@ -84,6 +87,7 @@ export class TileMode implements IMode {
     cols: number;
     rows: number;
     fitGrid: boolean;
+    imageMaxSize: number;
     bgColor: string;
     bgImagePath: string;
   }) {
@@ -93,6 +97,7 @@ export class TileMode implements IMode {
     this.cols = config.cols;
     this.rows = config.rows;
     this.fitGrid = config.fitGrid;
+    this.imageMaxSize = config.imageMaxSize;
     this.bgColor = config.bgColor;
     this.bgImagePath = config.bgImagePath;
 
@@ -170,6 +175,89 @@ export class TileMode implements IMode {
     await this.rebuildTiles();
   }
 
+  /**
+   * 画像 1 枚をテクスチャにする。同時に読むのは 3 枚まで（6 画面が一斉に読んで固まるのを避ける）。
+   * imageMaxSize > 0 のときは、長辺をその値まで縮小してから GPU に渡す。
+   */
+  private makeTextureLoader(gen: number) {
+    const cache = new Map<string, Promise<{ texture: THREE.Texture; aspect: number } | null>>();
+    const maxSize = this.imageMaxSize;
+    const light = maxSize > 0;
+    const waiting: (() => void)[] = [];
+    let running = 0;
+    const acquire = () =>
+      new Promise<void>((resolve) => {
+        const go = () => { running++; resolve(); };
+        if (running < 3) go(); else waiting.push(go);
+      });
+    const release = () => { running--; waiting.shift()?.(); };
+
+    const decode = async (url: string): Promise<{ texture: THREE.Texture; aspect: number }> => {
+      let texture: THREE.Texture;
+      let w: number;
+      let h: number;
+      if (light) {
+        const blob = await (await fetch(url)).blob();
+        const full = await createImageBitmap(blob);
+        w = full.width;
+        h = full.height;
+        const k = Math.min(1, maxSize / Math.max(w, h));
+        let bmp: ImageBitmap = full;
+        if (k < 1) {
+          bmp = await createImageBitmap(full, {
+            resizeWidth: Math.max(1, Math.round(w * k)),
+            resizeHeight: Math.max(1, Math.round(h * k)),
+            resizeQuality: 'high',
+            imageOrientation: 'flipY',
+          });
+          full.close();
+        } else {
+          bmp = await createImageBitmap(full, { imageOrientation: 'flipY' });
+          full.close();
+        }
+        texture = new THREE.Texture(bmp);
+        texture.flipY = false; // ImageBitmap は上で反転済み
+      } else {
+        texture = await this.textureLoader.loadAsync(url);
+        const img = texture.image as { width: number; height: number };
+        w = img.width;
+        h = img.height;
+      }
+      texture.generateMipmaps = true;
+      texture.colorSpace = THREE.SRGBColorSpace; // 指定がないと全体が白っぽくなる
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.anisotropy = light ? 4 : 16;
+      texture.needsUpdate = true;
+      return { texture, aspect: w && h ? w / h : 1 };
+    };
+
+    return (url: string) => {
+      let p = cache.get(url);
+      if (!p) {
+        p = (async () => {
+          await acquire();
+          try {
+            const r = await decode(url);
+            if (gen !== this.buildGen) {
+              r.texture.dispose(); // 読み込み中にタイルが作り直された
+              return null;
+            }
+            this.textures.push(r.texture);
+            return r;
+          } catch (e) {
+            console.warn(`画像を読めない: ${url}`, e);
+            return null;
+          } finally {
+            release();
+          }
+        })();
+        cache.set(url, p);
+      }
+      return p;
+    };
+  }
+
   // 🆕 タイル群の生成・再構築処理
   private async rebuildTiles() {
     if (this.imagePaths.length === 0) {
@@ -188,6 +276,7 @@ export class TileMode implements IMode {
     const rows = this.rows;
     const totalTiles = cols * rows;
     const baseHeight = this.tileSize;
+    const getTexture = this.makeTextureLoader(gen);
 
     for (let i = 0; i < totalTiles; i++) {
       const rawPath = this.imagePaths[i % this.imagePaths.length];
@@ -204,24 +293,13 @@ export class TileMode implements IMode {
 
       const mesh = new THREE.Mesh(geometry, material);
 
-      this.textureLoader.load(imgUrl, (texture) => {
-        if (gen !== this.buildGen) {
-          texture.dispose(); // 読み込み中にタイルが作り直された
-          return;
-        }
-        texture.generateMipmaps = true;
-        texture.colorSpace = THREE.SRGBColorSpace; // 指定がないと全体が白っぽくなる
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-        texture.anisotropy = 16;
-
-        const img = texture.image;
-        if (img && img.width && img.height) {
-          const aspect = img.width / img.height;
+      void getTexture(imgUrl).then((r) => {
+        if (!r || gen !== this.buildGen) return;
+        if (r.aspect) {
           mesh.geometry.dispose();
-          mesh.geometry = new THREE.PlaneGeometry(baseHeight * aspect, baseHeight);
+          mesh.geometry = new THREE.PlaneGeometry(baseHeight * r.aspect, baseHeight);
         }
-        material.map = texture;
+        material.map = r.texture;
         material.color.setScalar(this.gain());
         material.needsUpdate = true;
       });
@@ -257,10 +335,11 @@ export class TileMode implements IMode {
       const mesh = child as THREE.Mesh;
       mesh.geometry?.dispose();
       const mat = mesh.material as THREE.MeshBasicMaterial;
-      mat.map?.dispose();
       mat.dispose();
     }
     this.group.clear();
+    for (const t of this.textures) t.dispose();
+    this.textures = [];
   }
 
   /**
