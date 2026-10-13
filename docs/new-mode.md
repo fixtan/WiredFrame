@@ -9,7 +9,7 @@
 ## 2. モード名の登録
 - `src/settings.ts` の `MODES` にモード名を足す。
 - `index.html` の `#select-mode` に `<option>` を足す。
-- `src/main.ts` の `applyToMode` で、モード名からインスタンスを作る分岐を足す。
+- ノイズ系は、`src/main.ts` の `NOISE_MODES`（モード名 → 作り方）に 1 行足す。
 
 ## 3. 調整パラメータ（任意）
 1. `src/modes/params.ts` に `ParamDef[]`（key・label・min・max・step・default）を書き、`MODE_PARAMS` に登録する。
