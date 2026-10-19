@@ -6,6 +6,7 @@ import { NoiseMode3 } from './modes/NoiseMode3';
 import { NoiseMode4 } from './modes/NoiseMode4';
 import { NoiseMode5 } from './modes/NoiseMode5';
 import { NoiseMode6 } from './modes/NoiseMode6';
+import { JellyMode } from './modes/JellyMode';
 import type { IMode } from './core/IMode';
 import { MODE_PARAMS, clampParams, paramDefaults, type ParamValues } from './modes/params';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -46,6 +47,7 @@ const NOISE_MODES: Record<string, (s: AppSettings) => IMode> = {
   noise4: () => new NoiseMode4(),
   noise5: () => new NoiseMode5(),
   noise6: () => new NoiseMode6(),
+  jelly: () => new JellyMode(),
 };
 
 const appContainer = document.querySelector('#app') as HTMLElement;

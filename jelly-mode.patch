@@ -1,0 +1,1274 @@
+From a585d595923da8d45087fd3ee7cee462439b03d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 20 Oct 2026 06:55:48 +0900
+Subject: [PATCH 1/2] =?UTF-8?q?=E3=82=BC=E3=83=AA=E3=83=BC=E3=83=A2?=
+ =?UTF-8?q?=E3=83=BC=E3=83=89=E3=82=92=E8=BF=BD=E5=8A=A0=EF=BC=88=E8=B7=B3?=
+ =?UTF-8?q?=E3=81=AD=E5=9B=9E=E3=82=8A=E3=83=BB=E5=90=88=E4=BD=93=E3=83=BB?=
+ =?UTF-8?q?=E8=87=A8=E7=95=8C=E7=82=B9=E3=83=BB=E5=88=86=E8=A3=82=E3=81=AE?=
+ =?UTF-8?q?=E3=82=B5=E3=82=A4=E3=82=AF=E3=83=AB=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JcVXeBHV4Dnx9JYtJV1p8x
+---
+ README.md                     |   2 +-
+ docs/jelly-mode.md            |  43 ++
+ index.html                    |   1 +
+ src/main.ts                   |   2 +
+ src/modes/JellyMode.ts        | 237 ++++++++++
+ src/modes/jelly/JellyWorld.ts | 785 ++++++++++++++++++++++++++++++++++
+ src/modes/params.ts           |  16 +
+ src/settings.ts               |   4 +-
+ 8 files changed, 1087 insertions(+), 3 deletions(-)
+ create mode 100644 docs/jelly-mode.md
+ create mode 100644 src/modes/JellyMode.ts
+ create mode 100644 src/modes/jelly/JellyWorld.ts
+
+diff --git a/README.md b/README.md
+index bb3a529..b3b4155 100644
+--- a/README.md
++++ b/README.md
+@@ -9,7 +9,7 @@ Tauri v2（Rust）+ Vite + TypeScript + Three.js 製。
+ - モニターごとに独立した画面。画像フォルダ・表示パターン・タイルの大きさ・列数/行数・背景を、モニターごとに設定できる
+ - 名前を付けた画像フォルダのリストを作り、モニターごとに選べる（リストは全モニター共通）
+ - ケーブルの抜き差しやモニター構成の変更に追従して、自動で再展開
+-- 表示モードは「画像タイル」と「ノイズ1（粒子）」「ノイズ2（Mandelbulb）」「ノイズ3（ワイヤーフレーム地形）」「ノイズ4（ドメインワーピング）」「ノイズ5（ルーン）」「ノイズ6（万華鏡）」。モニターごとに選べる（ノイズは GPU 描画の粒子。色が時間でゆっくり変わる）
++- 表示モードは「画像タイル」と「ノイズ1（粒子）」「ノイズ2（Mandelbulb）」「ノイズ3（ワイヤーフレーム地形）」「ノイズ4（ドメインワーピング）」「ノイズ5（ルーン）」「ノイズ6（万華鏡）」「ゼリー」（跳ね回って合体・成長・分裂を繰り返す。`docs/jelly-mode.md`）。モニターごとに選べる（ノイズは GPU 描画の粒子。色が時間でゆっくり変わる）
+ - 列数・行数に合わせてカメラを自動調整（縦置きモニターにも対応）
+ - Windows ログイン時の自動起動（任意）
+ 
+diff --git a/docs/jelly-mode.md b/docs/jelly-mode.md
+new file mode 100644
+index 0000000..d67942e
+--- /dev/null
++++ b/docs/jelly-mode.md
+@@ -0,0 +1,43 @@
++# ゼリーモード
++
++ぷにぷにしたゼリーが跳ね回り、同じ色どうしがぶつかると合体して大きく育つ。いちばん大きく育つと「臨界点」の演出があり、そのあとはぶつかるたびに半分に分かれて小さくなり、また育つ。これを繰り返す。
++
++## 構成
++
++| ファイル | 役割 |
++| --- | --- |
++| `src/modes/jelly/JellyWorld.ts` | 物理。three.js に依存しない（Node でも動く）。60Hz 固定刻み |
++| `src/modes/JellyMode.ts` | Canvas2D に描いて、全画面の板のテクスチャとして貼る。パラメータを物理へ渡す |
++| `src/modes/params.ts` の `JELLY_PARAMS` | 設定パネルの「詳細な調整」に出るスライダー |
++
++## 動きの流れ
++
++1. **成長（grow）**: ゼリーの面積の合計が `fill`（箱の何割か）になるまで、小さいゼリーを足す。同じ段のゼリーが重なる（点が 5 個以上入りこむ）と合体して 1 段大きくなる。生まれてから `mergeDelay` 秒は合体しない。
++2. **臨界点**: いちばん大きい段（9 段目）ができると演出（光る・輪が広がる・揺れる・脈打つ）。`evSec` 秒。
++3. **分裂（split）**: ぶつかったゼリーが、長い軸の向きで 1 段小さい 2 個に分かれる（面積は保つ）。生まれてから `splitCool` 秒は分裂しない。全部が下限の段（`minCls`）以下になったら 1 に戻る。
++
++## 物理の要点
++
++- 1 個 = 点の輪。PBD + Verlet、1 フレームを 6 サブステップ。拘束は辺の長さ・面積（圧力）・1 つ飛ばしの距離・形の保持。
++- 衝突は「点が相手の内側に入ったら、いちばん近い辺から押し出す」。点が 3 個以上入りこんだら `separate` でゼリーごと離す（からまって離れなくなるのを防ぐ）。
++- 重力なし。全体の速さを `speed` の 0.7〜1.5 倍に保つので止まらない。
++- 周長と面積を両方固定すると円しか残らない（等周不等式）ので、周長は √(面積比) で縮め、形は弱く保つ。
++
++## 画面サイズへの対応
++
++- 箱の高さは 700 固定。幅は画面の縦横比で決まる。横長の画面ほど、ゼリーの数が増える。
++- いちばん大きい段が、箱の短辺の 34% を超えないよう、大きさの倍率に上限を掛ける（縦置きモニターでも収まる）。
++- 画面の縦横比が変わる、または「ゼリーの大きさ」を変えると、初めからやり直す。
++- 描画は `quality` で解像度を下げられる（高さ 1440 が上限）。物理が進んだフレームだけ描き直してテクスチャを送る。
++
++## 調整パラメータ
++
++`fill` 量 / `sizeScale` 大きさ / `speed` 速さ / `soft` やわらかさ / `press` ふくらみ / `amoeba` いびつさ / `mergeDelay` 合体の待ち / `splitCool` 分裂の待ち / `minCls` 分裂の下限の段 / `evSec` 演出の長さ / `splitCap` 個数の上限 / `quality` 解像度。
++
++重いときは、`splitCap` と `minCls`（上げる）、`quality`（下げる）、`fill`（下げる）の順に調整する。
++
++## 既知の限界
++
++- ごくまれに輪郭が一時的に折れる（ほとんどは数十フレームで戻る）。原因は未特定。
++- 衝突は「点と多角形」の方式なので、詰め込むと弱い。小さな円の輪＋内圧の方式への作り直しが根本対策（未実装）。
++- 実機での負荷（複数モニター同時）は未計測。
+diff --git a/index.html b/index.html
+index 1933ef3..33ec8f7 100644
+--- a/index.html
++++ b/index.html
+@@ -287,6 +287,7 @@
+                 <option value="noise4">ノイズ4（ドメインワーピング）</option>
+                 <option value="noise5">ノイズ5（ルーン）</option>
+                 <option value="noise6">ノイズ6（万華鏡）</option>
++                <option value="jelly">ゼリー</option>
+               </select>
+             </div>
+             <div class="setting-group">
+diff --git a/src/main.ts b/src/main.ts
+index 3ed8320..d626231 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -6,6 +6,7 @@ import { NoiseMode3 } from './modes/NoiseMode3';
+ import { NoiseMode4 } from './modes/NoiseMode4';
+ import { NoiseMode5 } from './modes/NoiseMode5';
+ import { NoiseMode6 } from './modes/NoiseMode6';
++import { JellyMode } from './modes/JellyMode';
+ import type { IMode } from './core/IMode';
+ import { MODE_PARAMS, clampParams, paramDefaults, type ParamValues } from './modes/params';
+ import { open } from '@tauri-apps/plugin-dialog';
+@@ -46,6 +47,7 @@ const NOISE_MODES: Record<string, (s: AppSettings) => IMode> = {
+   noise4: () => new NoiseMode4(),
+   noise5: () => new NoiseMode5(),
+   noise6: () => new NoiseMode6(),
++  jelly: () => new JellyMode(),
+ };
+ 
+ const appContainer = document.querySelector('#app') as HTMLElement;
+diff --git a/src/modes/JellyMode.ts b/src/modes/JellyMode.ts
+new file mode 100644
+index 0000000..dc5ad2c
+--- /dev/null
++++ b/src/modes/JellyMode.ts
+@@ -0,0 +1,237 @@
++// src/modes/JellyMode.ts
++//
++// ゼリー。ぷにぷにしたゼリーが跳ね回り、同じ色どうしがぶつかると合体して大きく育つ。
++// いちばん大きく育つと「臨界点」の演出があり、そのあとは、ぶつかるたびに半分に分かれて小さくなり、また育つ。
++//
++// 物理は src/modes/jelly/JellyWorld.ts（three.js に依存しない）。ここでは
++//   - Canvas2D にゼリーを描き、全画面の板のテクスチャとして貼る（カメラは使わない）
++//   - 設定パネルのパラメータを物理に渡す
++// だけを行う。物理は 60Hz 固定刻み。物理が進んだフレームだけ描き直してテクスチャを送る。
++//
++// 負荷: ゼリーが増えるほど（分裂フェーズの下限の段を下げるほど）重くなる。「個数の上限」と
++// 「描画の解像度」で調整する。箱の高さは固定（BOX_H）で、幅は画面の縦横比で決まるので、横長の画面ほど個数が増える。
++
++import * as THREE from 'three';
++import { IMode } from '../core/IMode';
++import { JELLY_PARAMS, clampParams, type ParamValues } from './params';
++import { BOX_H, JellyWorld, type Jelly } from './jelly/JellyWorld';
++
++const VERTEX = /* glsl */ `
++  varying vec2 vUv;
++  void main() {
++    vUv = uv;
++    gl_Position = vec4(position.xy, 0.0, 1.0); // カメラに関係なく画面全体
++  }
++`;
++
++const FRAGMENT = /* glsl */ `
++  uniform sampler2D u_tex;
++  uniform float u_gain;
++  varying vec2 vUv;
++  void main() {
++    gl_FragColor = vec4(texture2D(u_tex, vUv).rgb * u_gain, 1.0);
++  }
++`;
++
++const BG = '#0a0a14';
++const MAX_CANVAS_H = 1440; // 4K でも、描画はこの高さまで（引き伸ばす）
++
++export class JellyMode implements IMode {
++  private scene!: THREE.Scene;
++  private mesh: THREE.Mesh | null = null;
++  private geo: THREE.PlaneGeometry | null = null;
++  private mat: THREE.ShaderMaterial | null = null;
++  private tex: THREE.CanvasTexture | null = null;
++  private canvas: HTMLCanvasElement | null = null;
++  private ctx: CanvasRenderingContext2D | null = null;
++
++  private world: JellyWorld;
++  private p: ParamValues = clampParams(JELLY_PARAMS, {});
++  private brightness = 100;
++  private quality = 0.75;
++  private scale = 1; // 箱の座標 → キャンバスのピクセル
++  private dirty = true;
++
++  constructor() {
++    this.world = new JellyWorld(BOX_H * (window.innerWidth / Math.max(1, window.innerHeight)));
++    this.applyParams();
++  }
++
++  private gain(): number {
++    return Math.pow(this.brightness / 100, 2.2);
++  }
++
++  setBrightness(percent: number) {
++    this.brightness = percent;
++    if (this.mat) this.mat.uniforms.u_gain.value = this.gain();
++  }
++
++  setParams(values: ParamValues) {
++    this.p = clampParams(JELLY_PARAMS, values);
++    this.applyParams();
++  }
++
++  private applyParams() {
++    const p = this.p;
++    const sizeChanged = this.world.setParams({
++      soft: p.soft,
++      press: p.press,
++      speed: p.speed,
++      fill: p.fill,
++      sizeScale: p.sizeScale,
++      amoeba: p.amoeba,
++      mergeDelaySec: p.mergeDelay,
++      splitCoolSec: p.splitCool,
++      minCls: Math.round(p.minCls),
++      evSec: p.evSec,
++      splitCap: Math.round(p.splitCap),
++    });
++    if (sizeChanged) this.world.reset(); // ゼリーの大きさが変わったら、初めからやり直す
++    if (Math.abs(p.quality - this.quality) > 1e-3) {
++      this.quality = p.quality;
++      this.resizeCanvas();
++    }
++  }
++
++  init(scene: THREE.Scene, _camera: THREE.PerspectiveCamera, _renderer?: THREE.WebGLRenderer) {
++    this.scene = scene;
++    scene.background = new THREE.Color(BG);
++
++    this.canvas = document.createElement('canvas');
++    this.ctx = this.canvas.getContext('2d');
++    this.tex = new THREE.CanvasTexture(this.canvas);
++    this.tex.colorSpace = THREE.NoColorSpace; // 色はそのまま画面へ（NoiseMode と同じ扱い）
++    this.tex.minFilter = THREE.LinearFilter;
++    this.tex.generateMipmaps = false;
++
++    this.mat = new THREE.ShaderMaterial({
++      uniforms: { u_tex: { value: this.tex }, u_gain: { value: this.gain() } },
++      vertexShader: VERTEX,
++      fragmentShader: FRAGMENT,
++      depthTest: false,
++      depthWrite: false,
++    });
++    this.geo = new THREE.PlaneGeometry(2, 2);
++    this.mesh = new THREE.Mesh(this.geo, this.mat);
++    this.mesh.frustumCulled = false;
++    scene.add(this.mesh);
++    this.onResize();
++  }
++
++  /** キャンバスの大きさを画面に合わせる（箱は高さ固定・幅は縦横比で決まる） */
++  private resizeCanvas() {
++    if (!this.canvas) return;
++    const h = Math.max(120, Math.min(MAX_CANVAS_H, Math.round(window.innerHeight * this.quality)));
++    const w = Math.max(120, Math.round(h * (window.innerWidth / Math.max(1, window.innerHeight))));
++    if (this.canvas.width !== w || this.canvas.height !== h) {
++      this.canvas.width = w;
++      this.canvas.height = h;
++      // テクスチャの大きさが変わるので、作り直してもらう
++      this.tex?.dispose();
++    }
++    this.scale = h / BOX_H;
++    this.dirty = true;
++  }
++
++  onResize() {
++    // 縦横比が変わったら箱の幅も変わるので、初めからやり直す
++    const boxW = BOX_H * (window.innerWidth / Math.max(1, window.innerHeight));
++    if (Math.abs(boxW - this.world.W) > 1) {
++      this.world.setBox(boxW);
++      this.world.reset();
++    }
++    this.resizeCanvas();
++  }
++
++  update(delta: number, _time: number) {
++    if (!this.ctx || !this.tex) return;
++    if (this.world.advance(delta) || this.dirty) {
++      this.draw();
++      this.tex.needsUpdate = true;
++      this.dirty = false;
++    }
++  }
++
++  // ===== 描画 =====
++  private path(ctx: CanvasRenderingContext2D, j: Jelly) {
++    const p = j.p;
++    const n = j.n;
++    ctx.beginPath();
++    ctx.moveTo((p[n - 1][0] + p[0][0]) / 2, (p[n - 1][1] + p[0][1]) / 2);
++    for (let i = 0; i < n; i++) {
++      const a = p[i];
++      const b = p[(i + 1) % n];
++      ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
++    }
++    ctx.closePath();
++  }
++
++  private draw() {
++    const ctx = this.ctx!;
++    const cv = this.canvas!;
++    const w = this.world;
++    const s = this.scale;
++    ctx.setTransform(1, 0, 0, 1, 0, 0);
++    ctx.fillStyle = BG;
++    ctx.fillRect(0, 0, cv.width, cv.height);
++    ctx.setTransform(s, 0, 0, s, 0, 0);
++
++    ctx.save();
++    const ev = w.ev;
++    const evFrames = Math.max(1, this.p.evSec * 60);
++    if (ev) {
++      // 画面の揺れ（前半で減衰）
++      const a = 7 * Math.max(0, 1 - ev.t / (evFrames * 0.5));
++      ctx.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
++    }
++    for (const j of w.jellies) {
++      const [cx, cy] = j.center();
++      this.path(ctx, j);
++      ctx.fillStyle = `hsl(${j.hue} 90% 58%)`;
++      ctx.fill();
++      ctx.save();
++      this.path(ctx, j);
++      ctx.clip();
++      const g = ctx.createRadialGradient(cx - j.r * 0.35, cy - j.r * 0.45, 1, cx - j.r * 0.2, cy - j.r * 0.3, j.r * 1.2);
++      g.addColorStop(0, 'rgba(255,255,255,0.55)');
++      g.addColorStop(0.5, 'rgba(255,255,255,0.08)');
++      g.addColorStop(1, 'rgba(0,0,0,0.28)');
++      ctx.fillStyle = g;
++      ctx.fillRect(cx - j.r * 3, cy - j.r * 3, j.r * 6, j.r * 6);
++      ctx.restore();
++      this.path(ctx, j);
++      ctx.lineWidth = 2;
++      ctx.strokeStyle = `hsl(${j.hue} 90% 30%)`;
++      ctx.stroke();
++    }
++    for (const f of w.fx) {
++      const k = f.t / (f.L || 30);
++      ctx.beginPath();
++      ctx.arc(f.x, f.y, f.r * (1 + k * (f.g || 1.8)), 0, 6.283);
++      ctx.lineWidth = 3 * (1 - k);
++      ctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - k)})`;
++      ctx.stroke();
++    }
++    ctx.restore();
++    if (ev && ev.t < 40) {
++      // 一瞬の光
++      const k = 1 - ev.t / 40;
++      ctx.fillStyle = `rgba(255,255,255,${0.75 * k * k})`;
++      ctx.fillRect(0, 0, w.W, w.H);
++    }
++  }
++
++  dispose() {
++    if (this.mesh) this.scene.remove(this.mesh);
++    this.geo?.dispose();
++    this.mat?.dispose();
++    this.tex?.dispose();
++    this.mesh = null;
++    this.geo = null;
++    this.mat = null;
++    this.tex = null;
++    this.ctx = null;
++    this.canvas = null;
++    this.scene.background = null;
++  }
++}
+diff --git a/src/modes/jelly/JellyWorld.ts b/src/modes/jelly/JellyWorld.ts
+new file mode 100644
+index 0000000..b87f93c
+--- /dev/null
++++ b/src/modes/jelly/JellyWorld.ts
+@@ -0,0 +1,785 @@
++// src/modes/jelly/JellyWorld.ts
++//
++// ゼリーの物理（three.js に依存しない。Node でも動く）。
++//
++// 1 個のゼリー = 点が輪になったもの。PBD（Position Based Dynamics）+ Verlet 積分で、
++// 1 フレームを SUB 回に分けて計算する。拘束は「辺の長さ」「面積（圧力）」「1 つ飛ばしの距離」「形の保持」。
++// ゼリー同士のぶつかりは、点が相手の多角形の内側に入ったら、いちばん近い辺から押し出す。
++//
++// 動き（スクリーンセーバー用）:
++//   - 重力なし。壁で跳ね返り、全体の速さを一定の範囲に保つ（止まらない）
++//   - 同じ段（クラス）のゼリーが重なると合体して 1 段大きくなる（'grow'）
++//   - いちばん大きい段ができたら「臨界点」の演出（ev）→ 分裂フェーズ（'split'）
++//   - 分裂フェーズでは、ぶつかったゼリーが 1 段小さい 2 個に分かれる。下限の段まで小さくなったら 'grow' に戻る
++//
++// 座標は「箱の座標」。箱の高さは BOX_H で固定し、幅は画面の縦横比で決める（setBox）。
++// 時間は 1/60 秒を 1 フレームとする固定刻み（step()）。
++
++export const BOX_H = 700;
++
++const PT_GAP = 14; // 輪郭の点の間隔（箱の座標）
++const N_MIN = 18;
++const N_MAX = 110;
++const SUB = 6; // 1 フレームを分けるサブステップ数
++const DT = 1 / 60;
++const INNER = 0.985; // 中の震えを 1 サブステップごとに残す割合
++const ROT = 0.35;
++const MERGE_PTS = 5; // 何個の点が重なったら合体するか
++const WALL_MU = 0.04;
++const WALL_E = 0.85;
++
++/** 段（クラス）ごとの基準の半径と色相。半径は sizeScale 倍して使う */
++export const CLASSES = [
++  { r: 16, h: 8 },
++  { r: 22, h: 50 },
++  { r: 30, h: 100 },
++  { r: 41, h: 150 },
++  { r: 56, h: 185 },
++  { r: 77, h: 215 },
++  { r: 105, h: 255 },
++  { r: 144, h: 290 },
++  { r: 197, h: 330 },
++];
++export const TOP = CLASSES.length - 1;
++
++/** 実行中に変えられるパラメータ（単位はコメントのとおり。秒はフレームに直して使う） */
++export type JellyParams = {
++  soft: number; // やわらかさ 0〜1
++  press: number; // ふくらみ（面積の目標）0.5〜1.1
++  speed: number; // 速さ（箱の座標 / フレーム）
++  fill: number; // 箱を埋める割合（ゼリーの面積の合計）
++  sizeScale: number; // ゼリーの大きさの倍率
++  amoeba: number; // 形のいびつさ
++  mergeDelaySec: number; // 生まれてから合体できるまで
++  splitCoolSec: number; // 生まれてから分裂できるまで
++  minCls: number; // 分裂で小さくなる下限の段（0 が最小）
++  evSec: number; // 臨界点の演出の長さ
++  splitCap: number; // 個数の上限
++};
++
++export const DEFAULT_PARAMS: JellyParams = {
++  soft: 0.92,
++  press: 0.9,
++  speed: 3.5,
++  fill: 0.45,
++  sizeScale: 1,
++  amoeba: 0.3,
++  mergeDelaySec: 1.5,
++  splitCoolSec: 0.8,
++  minCls: 2,
++  evSec: 4,
++  splitCap: 150,
++};
++
++type Pt = [number, number];
++
++export class Jelly {
++  cls: number;
++  tr: number; // 目標の半径
++  hueTo: number;
++  hue: number;
++  r: number; // 今の半径（成長中は目標に近づく）
++  n: number;
++  ph = 0;
++  w2 = 0;
++  w3 = 0;
++  t = 0;
++  dead = false;
++  age = 0;
++  hit = false;
++  p: Pt[] = [];
++  prev: Pt[] = [];
++  q: Pt[] = [];
++  bb = [0, 0, 0, 0];
++  L0 = 0;
++  L2 = 0;
++  A0 = 0;
++
++  constructor(x: number, y: number, cls: number, rTarget: number, r0: number, hue0: number | undefined, amoeba: number, rnd: () => number) {
++    this.cls = cls;
++    this.tr = rTarget;
++    this.hueTo = CLASSES[cls].h;
++    this.ph = rnd() * 6.28;
++    this.w2 = 0.6 + rnd() * 0.8;
++    this.w3 = 0.5 + rnd() * 0.8;
++    this.n = ptsFor(rTarget);
++    this.r = r0;
++    this.hue = hue0 === undefined ? this.hueTo : hue0;
++    const N = this.n;
++    for (let i = 0; i < N; i++) {
++      const a = (i / N) * Math.PI * 2;
++      const qx = Math.cos(a) * this.r;
++      const qy = Math.sin(a) * this.r;
++      this.q.push([qx, qy]);
++      this.p.push([x + qx, y + qy]);
++      this.prev.push([x + qx, y + qy]);
++    }
++    this.rebuild(this.r, amoeba);
++  }
++
++  /** 大きさ（元の形）を作り直す。成長のときに使う。元の形は 2・3 次の波でゆっくりいびつに変わる */
++  rebuild(r: number, A: number) {
++    this.r = r;
++    const N = this.n;
++    const t = this.t;
++    for (let i = 0; i < N; i++) {
++      const a = (i / N) * Math.PI * 2;
++      const k = 1 + A * (Math.cos(2 * a + this.ph + t * this.w2 * 0.03) * 0.8 + Math.cos(3 * a - this.ph * 1.7 + t * this.w3 * 0.04) * 0.6);
++      this.q[i][0] = Math.cos(a) * r * k;
++      this.q[i][1] = Math.sin(a) * r * k;
++    }
++    this.L0 = 2 * r * Math.sin(Math.PI / N);
++    this.L2 = 2 * r * Math.sin((2 * Math.PI) / N);
++    this.A0 = Math.PI * r * r * 0.99; // 点を結んだ多角形の面積は、円より少し小さい
++  }
++
++  /** 1 サブステップあたりの平均速度 */
++  vel(): Pt {
++    const N = this.n;
++    let x = 0;
++    let y = 0;
++    for (let i = 0; i < N; i++) {
++      x += this.p[i][0] - this.prev[i][0];
++      y += this.p[i][1] - this.prev[i][1];
++    }
++    return [x / N, y / N];
++  }
++
++  center(): Pt {
++    const N = this.n;
++    let x = 0;
++    let y = 0;
++    for (const p of this.p) {
++      x += p[0];
++      y += p[1];
++    }
++    return [x / N, y / N];
++  }
++
++  area(): number {
++    const N = this.n;
++    let a = 0;
++    for (let i = 0; i < N; i++) {
++      const p = this.p[i];
++      const n = this.p[(i + 1) % N];
++      a += p[0] * n[1] - n[0] * p[1];
++    }
++    return a / 2;
++  }
++
++  updateBB() {
++    let x0 = 1e9;
++    let y0 = 1e9;
++    let x1 = -1e9;
++    let y1 = -1e9;
++    for (const p of this.p) {
++      if (p[0] < x0) x0 = p[0];
++      if (p[0] > x1) x1 = p[0];
++      if (p[1] < y0) y0 = p[1];
++      if (p[1] > y1) y1 = p[1];
++    }
++    this.bb[0] = x0;
++    this.bb[1] = y0;
++    this.bb[2] = x1;
++    this.bb[3] = y1;
++  }
++}
++
++const ptsFor = (r: number) => Math.min(N_MAX, Math.max(N_MIN, Math.round((2 * Math.PI * r) / PT_GAP)));
++
++/** 合体・臨界点・分裂の演出に使う輪 */
++export type Ring = { x: number; y: number; r: number; t: number; L?: number; g?: number };
++/** 臨界点の演出の状態 */
++export type CritEvent = { t: number; j: Jelly };
++
++function inside(poly: Pt[], x: number, y: number): boolean {
++  const N = poly.length;
++  let c = false;
++  for (let i = 0, j = N - 1; i < N; j = i++) {
++    const a = poly[i];
++    const b = poly[j];
++    if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) c = !c;
++  }
++  return c;
++}
++
++export class JellyWorld {
++  W = 640;
++  H = BOX_H;
++  P: JellyParams = { ...DEFAULT_PARAMS };
++  jellies: Jelly[] = [];
++  fx: Ring[] = [];
++  ev: CritEvent | null = null;
++  mode: 'grow' | 'split' = 'grow';
++  stats = { merges: 0, top: 0, events: 0, splits: 0, cycles: 0 };
++  /** 乱数（テストで差し替える） */
++  rnd: () => number = Math.random;
++
++  private frame = 0;
++  private pending: [Jelly, Jelly][] = [];
++  private acc = 0;
++  private k = 1; // 実際に使う大きさの倍率（箱に収まるよう制限済み）
++
++  constructor(W: number, params?: Partial<JellyParams>) {
++    this.setBox(W);
++    if (params) this.setParams(params);
++    this.reset();
++  }
++
++  /** 大きさの倍率。いちばん大きい段が箱の短辺の 34% を超えないようにする */
++  private calcK(): number {
++    const limit = (0.34 * Math.min(this.W, this.H)) / CLASSES[TOP].r;
++    return Math.max(0.3, Math.min(this.P.sizeScale, limit));
++  }
++
++  private rad(cls: number) {
++    return CLASSES[cls].r * this.k;
++  }
++
++  /** 箱の幅を変える。作り直す（reset）ので、呼んだ側で必要なら reset を呼ぶこと */
++  setBox(W: number) {
++    this.W = Math.max(200, W);
++    this.k = this.calcK();
++  }
++
++  /** パラメータを反映する。大きさが変わったら true（呼んだ側が reset する） */
++  setParams(p: Partial<JellyParams>): boolean {
++    const before = this.k;
++    this.P = { ...this.P, ...p };
++    this.k = this.calcK();
++    return Math.abs(before - this.k) > 1e-6;
++  }
++
++  get scale() {
++    return this.k;
++  }
++
++  reset() {
++    this.jellies = [];
++    this.fx = [];
++    this.ev = null;
++    this.mode = 'grow';
++    this.pending = [];
++    this.frame = 0;
++    this.acc = 0;
++    this.stats = { merges: 0, top: 0, events: 0, splits: 0, cycles: 0 };
++    // 最初から、箱の面積の割合 fill の 6 割くらいまで置いておく
++    for (let i = 0; i < 40 && this.totalArea() < this.P.fill * 0.6 * this.W * this.H; i++) this.spawnOne();
++  }
++
++  private spawn(x: number, y: number, cls: number, rTarget: number, r0: number, hue?: number) {
++    const j = new Jelly(x, y, cls, rTarget, r0, hue, this.P.amoeba, this.rnd);
++    this.jellies.push(j);
++    return j;
++  }
++
++  private setVel(j: Jelly, vx: number, vy: number) {
++    for (let i = 0; i < j.n; i++) {
++      j.prev[i][0] = j.p[i][0] - vx;
++      j.prev[i][1] = j.p[i][1] - vy;
++    }
++  }
++
++  totalArea() {
++    return this.jellies.reduce((a, j) => a + Math.PI * j.r * j.r, 0);
++  }
++
++  /** 経過時間（秒）ぶん、固定刻みで進める。物理を進めたら true（描画し直す合図） */
++  advance(deltaSec: number): boolean {
++    this.acc += Math.min(0.1, deltaSec);
++    let n = 0;
++    while (this.acc >= DT && n < 3) {
++      this.step();
++      this.acc -= DT;
++      n++;
++    }
++    if (this.acc > DT * 3) this.acc = 0;
++    return n > 0;
++  }
++
++  // ===== 物理 =====
++  private pushOut(A: Jelly, B: Jelly, mu: number): number {
++    const N = B.n;
++    const NA = A.n;
++    let cnt = 0;
++    for (let i = 0; i < NA; i++) {
++      const p = A.p[i];
++      if (p[0] < B.bb[0] || p[0] > B.bb[2] || p[1] < B.bb[1] || p[1] > B.bb[3]) continue;
++      if (!inside(B.p, p[0], p[1])) continue;
++      cnt++;
++      let best = 1e18;
++      let bj = 0;
++      let bt = 0;
++      let bqx = 0;
++      let bqy = 0;
++      for (let j = 0; j < N; j++) {
++        const a = B.p[j];
++        const b = B.p[(j + 1) % N];
++        const ex = b[0] - a[0];
++        const ey = b[1] - a[1];
++        const l2 = ex * ex + ey * ey || 1e-9;
++        let t = ((p[0] - a[0]) * ex + (p[1] - a[1]) * ey) / l2;
++        t = t < 0 ? 0 : t > 1 ? 1 : t;
++        const qx = a[0] + ex * t;
++        const qy = a[1] + ey * t;
++        const d = (p[0] - qx) ** 2 + (p[1] - qy) ** 2;
++        if (d < best) {
++          best = d;
++          bj = j;
++          bt = t;
++          bqx = qx;
++          bqy = qy;
++        }
++      }
++      let nx = bqx - p[0];
++      let ny = bqy - p[1];
++      const pen = Math.hypot(nx, ny);
++      if (pen < 1e-6) continue;
++      nx /= pen;
++      ny /= pen; // p から表面へ向かう向き（B の外向き）
++      const e1 = B.p[bj];
++      const e2 = B.p[(bj + 1) % N];
++      const w1 = 1 - bt;
++      const w2 = bt;
++      const ws = w1 * w1 + w2 * w2;
++      const dp = pen * (ws / (1 + ws));
++      const de = pen / (1 + ws); // 質量が同じとして、動かす量を分ける
++      p[0] += nx * dp;
++      p[1] += ny * dp;
++      const k1 = (de * w1) / ws;
++      const k2 = (de * w2) / ws;
++      e1[0] -= nx * k1;
++      e1[1] -= ny * k1;
++      e2[0] -= nx * k2;
++      e2[1] -= ny * k2;
++      // 摩擦: 点の、面に沿った速さを減らす
++      const pv = A.prev[i];
++      const vx = p[0] - pv[0];
++      const vy = p[1] - pv[1];
++      const vn = vx * nx + vy * ny;
++      pv[0] += (vx - nx * vn) * mu;
++      pv[1] += (vy - ny * vn) * mu;
++    }
++    return cnt;
++  }
++
++  private solveJelly(j: Jelly, h: number) {
++    const N = j.n;
++    const soft = Math.min(1, Math.max(0, this.P.soft));
++    const press = Math.min(1.1, Math.max(0.5, this.P.press));
++    const perim = 1.02 * Math.sqrt(press);
++    const kEdge = 0.3;
++    const kShape = (0.0001 + (1 - soft) * (1 - soft) * 0.22) * 0.2; // やわらかいほど、形を戻す力が弱い
++    const alpha = (0.00002 + soft * 0.0012) / (h * h);
++    // 1) 辺の長さ
++    for (let it = 0; it < 2; it++) {
++      for (let i = 0; i < N; i++) {
++        const a = j.p[i];
++        const b = j.p[(i + 1) % N];
++        let dx = b[0] - a[0];
++        let dy = b[1] - a[1];
++        const l = Math.hypot(dx, dy) || 1e-9;
++        const f = ((l - j.L0 * perim) / l) * 0.5 * kEdge;
++        dx *= f;
++        dy *= f;
++        a[0] += dx;
++        a[1] += dy;
++        b[0] -= dx;
++        b[1] -= dy;
++      }
++    }
++    // 2) 面積（圧力）: 中の体積を、目標に近づける
++    const A = j.area();
++    const target = j.A0 * press;
++    const C = A - target;
++    let sg = 0;
++    const gx = new Array<number>(N);
++    const gy = new Array<number>(N);
++    for (let i = 0; i < N; i++) {
++      const pm = j.p[(i + N - 1) % N];
++      const pn = j.p[(i + 1) % N];
++      gx[i] = 0.5 * (pn[1] - pm[1]);
++      gy[i] = -0.5 * (pn[0] - pm[0]);
++      sg += gx[i] * gx[i] + gy[i] * gy[i];
++    }
++    const lam = -C / (sg + alpha);
++    for (let i = 0; i < N; i++) {
++      j.p[i][0] += lam * gx[i];
++      j.p[i][1] += lam * gy[i];
++    }
++    // 2.5) ふちのギザギザをならす（1 つ飛ばしの点との距離を保って、折れ曲がりを防ぐ）
++    const kB = 0.6;
++    const L2 = j.L2;
++    for (let i = 0; i < N; i++) {
++      const a = j.p[i];
++      const b = j.p[(i + 2) % N];
++      let dx = b[0] - a[0];
++      let dy = b[1] - a[1];
++      const l = Math.hypot(dx, dy) || 1e-9;
++      const f = ((l - L2 * perim) / l) * 0.5 * kB;
++      dx *= f;
++      dy *= f;
++      a[0] += dx;
++      a[1] += dy;
++      b[0] -= dx;
++      b[1] -= dy;
++    }
++    // 3) 形をたもつ力（弱い）: 回転も考えて、もとの形へ引き戻す
++    const [cx, cy] = j.center();
++    let sx = 0;
++    let sy = 0;
++    for (let i = 0; i < N; i++) {
++      const rx = j.p[i][0] - cx;
++      const ry = j.p[i][1] - cy;
++      const q = j.q[i];
++      sx += q[0] * rx + q[1] * ry;
++      sy += q[0] * ry - q[1] * rx;
++    }
++    const th = Math.atan2(sy, sx);
++    const cs = Math.cos(th);
++    const sn = Math.sin(th);
++    for (let i = 0; i < N; i++) {
++      const q = j.q[i];
++      const gxp = cx + cs * q[0] - sn * q[1];
++      const gyp = cy + sn * q[0] + cs * q[1];
++      j.p[i][0] += (gxp - j.p[i][0]) * kShape;
++      j.p[i][1] += (gyp - j.p[i][1]) * kShape;
++    }
++  }
++
++  private walls(j: Jelly) {
++    const { W, H } = this;
++    for (let i = 0; i < j.n; i++) {
++      const p = j.p[i];
++      const pv = j.prev[i];
++      if (p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) j.hit = true;
++      if (p[1] > H) {
++        const v = p[1] - pv[1];
++        p[1] = H;
++        pv[1] = H + Math.max(0, v) * WALL_E;
++        pv[0] += (p[0] - pv[0]) * WALL_MU;
++      }
++      if (p[1] < 0) {
++        const v = p[1] - pv[1];
++        p[1] = 0;
++        pv[1] = Math.min(0, v) * WALL_E;
++        pv[0] += (p[0] - pv[0]) * WALL_MU;
++      }
++      if (p[0] < 0) {
++        const v = p[0] - pv[0];
++        p[0] = 0;
++        pv[0] = Math.min(0, v) * WALL_E;
++        pv[1] += (p[1] - pv[1]) * WALL_MU;
++      }
++      if (p[0] > W) {
++        const v = p[0] - pv[0];
++        p[0] = W;
++        pv[0] = W + Math.max(0, v) * WALL_E;
++        pv[1] += (p[1] - pv[1]) * WALL_MU;
++      }
++    }
++  }
++
++  /** 2 つのゼリーを、中心どうしの向きに、重なった分だけ離す（からまって離れなくなるのを防ぐ） */
++  private separate(A: Jelly, B: Jelly, ov: number) {
++    const ca = A.center();
++    const cb = B.center();
++    let dx = ca[0] - cb[0];
++    let dy = ca[1] - cb[1];
++    const d = Math.hypot(dx, dy) || 1e-6;
++    dx /= d;
++    dy /= d;
++    const ma = A.n * A.r;
++    const mb = B.n * B.r;
++    const step = Math.min(3, 0.4 * ov);
++    const sa = (step * mb) / (ma + mb);
++    const sb = (step * ma) / (ma + mb);
++    const va = A.vel();
++    const vb = B.vel();
++    const vn = (va[0] - vb[0]) * dx + (va[1] - vb[1]) * dy; // 近づいていたら、はね返す
++    if (vn < 0) {
++      const J = (-(1 + 0.7) * vn) / (1 / ma + 1 / mb);
++      const ua = J / ma;
++      const ub = J / mb;
++      for (let i = 0; i < A.n; i++) {
++        A.prev[i][0] -= dx * ua;
++        A.prev[i][1] -= dy * ua;
++      }
++      for (let i = 0; i < B.n; i++) {
++        B.prev[i][0] += dx * ub;
++        B.prev[i][1] += dy * ub;
++      }
++    }
++    for (let i = 0; i < A.n; i++) {
++      A.p[i][0] += dx * sa;
++      A.p[i][1] += dy * sa;
++      A.prev[i][0] += dx * sa;
++      A.prev[i][1] += dy * sa;
++    }
++    for (let i = 0; i < B.n; i++) {
++      B.p[i][0] -= dx * sb;
++      B.p[i][1] -= dy * sb;
++      B.prev[i][0] -= dx * sb;
++      B.prev[i][1] -= dy * sb;
++    }
++  }
++
++  private stepSub(h: number) {
++    const damp = 0.9985;
++    const jellies = this.jellies;
++    const mergeDelay = this.P.mergeDelaySec * 60;
++    for (const j of jellies) {
++      const N = j.n;
++      let cvx = 0;
++      let cvy = 0;
++      let ccx = 0;
++      let ccy = 0;
++      for (let i = 0; i < N; i++) {
++        cvx += j.p[i][0] - j.prev[i][0];
++        cvy += j.p[i][1] - j.prev[i][1];
++        ccx += j.p[i][0];
++        ccy += j.p[i][1];
++      }
++      cvx /= N;
++      cvy /= N;
++      ccx /= N;
++      ccy /= N;
++      let wn = 0;
++      let wd = 1e-9; // ぐるぐる回る速さ（角速度）を求めて、少し減らす
++      for (let i = 0; i < N; i++) {
++        const rx = j.p[i][0] - ccx;
++        const ry = j.p[i][1] - ccy;
++        const ux = j.p[i][0] - j.prev[i][0] - cvx;
++        const uy = j.p[i][1] - j.prev[i][1] - cvy;
++        wn += rx * uy - ry * ux;
++        wd += rx * rx + ry * ry;
++      }
++      const om = (wn / wd) * ROT;
++      for (let i = 0; i < N; i++) {
++        const p = j.p[i];
++        const pv = j.prev[i];
++        // 全体の動きはそのまま、ゼリーの中の震え（全体の速さからの差）だけを少し減らす
++        const ux = p[0] - pv[0] - cvx + (p[1] - ccy) * om;
++        const uy = p[1] - pv[1] - cvy - (p[0] - ccx) * om;
++        const vx = (cvx + ux * INNER) * damp;
++        const vy = (cvy + uy * INNER) * damp;
++        pv[0] = p[0];
++        pv[1] = p[1];
++        p[0] += vx;
++        p[1] += vy;
++      }
++    }
++    for (let it = 0; it < 2; it++) {
++      for (const j of jellies) this.solveJelly(j, h);
++      for (const j of jellies) j.updateBB();
++      for (let a = 0; a < jellies.length; a++) {
++        for (let b = a + 1; b < jellies.length; b++) {
++          const A = jellies[a];
++          const B = jellies[b];
++          if (A.bb[2] < B.bb[0] || B.bb[2] < A.bb[0] || A.bb[3] < B.bb[1] || B.bb[3] < A.bb[1]) continue;
++          if (this.mode === 'grow' && A.cls === B.cls && A.cls < TOP && A.age > mergeDelay && B.age > mergeDelay && !A.dead && !B.dead) {
++            // 同じ段: 重なったら合体
++            let n = 0;
++            for (let i = 0; i < A.n && n < MERGE_PTS; i++) if (inside(B.p, A.p[i][0], A.p[i][1])) n++;
++            for (let i = 0; i < B.n && n < MERGE_PTS; i++) if (inside(A.p, B.p[i][0], B.p[i][1])) n++;
++            if (n >= MERGE_PTS) {
++              this.pending.push([A, B]);
++              A.dead = B.dead = true;
++            }
++            continue;
++          }
++          const ov = this.pushOut(A, B, 0.12) + this.pushOut(B, A, 0.12);
++          if (ov >= 2) {
++            A.hit = true;
++            B.hit = true;
++          }
++          if (ov >= 3) this.separate(A, B, ov);
++        }
++      }
++      for (const j of jellies) this.walls(j);
++    }
++  }
++
++  private mergePair(A: Jelly, B: Jelly) {
++    const { W, H } = this;
++    const aA = Math.abs(A.area());
++    const aB = Math.abs(B.area());
++    const ta = aA + aB;
++    const ca = A.center();
++    const cb = B.center();
++    const va = A.vel();
++    const vb = B.vel();
++    const x = (ca[0] * aA + cb[0] * aB) / ta;
++    const y = (ca[1] * aA + cb[1] * aB) / ta;
++    const vx = (va[0] * aA + vb[0] * aB) / ta;
++    const vy = (va[1] * aA + vb[1] * aB) / ta;
++    this.stats.merges++;
++    this.fx.push({ x, y, r: A.r, t: 0 });
++    const next = A.cls + 1;
++    const mg = Math.max(40 * this.k, this.rad(next) * 0.85); // できる場所を壁から離す（壁で潰れて輪郭がねじれるのを防ぐ）
++    const j = this.spawn(
++      Math.min(W - mg, Math.max(mg, x)),
++      Math.min(H - mg, Math.max(mg, y)),
++      next,
++      this.rad(next),
++      A.r * 1.15,
++      A.hue,
++    );
++    if (next === TOP) {
++      this.ev = { t: 0, j }; // 臨界点: いちばん大きいゼリーができた
++      this.stats.events++;
++    }
++    const ph = this.rnd() * 6.28;
++    const N = j.n; // できた直後は、ぷるんと歪ませる
++    for (let i = 0; i < N; i++) {
++      const a = (i / N) * 6.28;
++      const k = 1 + 0.35 * Math.cos(2 * a + ph);
++      j.p[i][0] = x + (j.p[i][0] - x) * k;
++      j.p[i][1] = y + (j.p[i][1] - y) * k;
++    }
++    this.setVel(j, vx, vy);
++  }
++
++  /** 止まらないように、全体の速さを一定の範囲に保つ */
++  private regulate() {
++    const lo = this.P.speed * 0.7;
++    const hi = this.P.speed * 1.5;
++    for (const j of this.jellies) {
++      const N = j.n;
++      const v = j.vel();
++      const sp = Math.hypot(v[0], v[1]) * SUB;
++      let want = 0;
++      if (sp < lo) want = lo;
++      else if (sp > hi) want = hi;
++      else continue;
++      if (sp < 0.02) {
++        const a = this.rnd() * 6.28;
++        for (let i = 0; i < N; i++) {
++          j.prev[i][0] -= (Math.cos(a) * lo) / SUB;
++          j.prev[i][1] -= (Math.sin(a) * lo) / SUB;
++        }
++        continue;
++      }
++      const s = 1 + (want / sp - 1) * 0.12;
++      for (let i = 0; i < N; i++) {
++        j.prev[i][0] += (1 - s) * v[0];
++        j.prev[i][1] += (1 - s) * v[1];
++      }
++    }
++  }
++
++  /** 小さいゼリーを 1 個足す（置ける場所が見つからなければ false） */
++  spawnOne(): boolean {
++    const { W, H } = this;
++    const cls = [0, 0, 0, 1, 1, 2][Math.floor(this.rnd() * 6)];
++    const r = this.rad(cls);
++    for (let t = 0; t < 12; t++) {
++      const x = r + 20 + this.rnd() * Math.max(1, W - 2 * r - 40);
++      const y = r + 20 + this.rnd() * Math.max(1, H - 2 * r - 40);
++      if (
++        this.jellies.some((o) => {
++          const c = o.center();
++          return Math.hypot(c[0] - x, c[1] - y) < o.r + r + 12;
++        })
++      )
++        continue;
++      const j = this.spawn(x, y, cls, r, r * 0.3);
++      const a = this.rnd() * 6.28;
++      this.setVel(j, (Math.cos(a) * this.P.speed) / SUB, (Math.sin(a) * this.P.speed) / SUB);
++      return true;
++    }
++    return false;
++  }
++
++  /** 1 段小さいゼリー 2 個に、長い軸の向きで分ける */
++  private splitJelly(j: Jelly) {
++    const { W, H } = this;
++    const c = j.center();
++    const v = j.vel();
++    const N = j.n;
++    let sxx = 0;
++    let syy = 0;
++    let sxy = 0;
++    for (let i = 0; i < N; i++) {
++      const dx = j.p[i][0] - c[0];
++      const dy = j.p[i][1] - c[1];
++      sxx += dx * dx;
++      syy += dy * dy;
++      sxy += dx * dy;
++    }
++    const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
++    const ux = Math.cos(th);
++    const uy = Math.sin(th);
++    const cls = j.cls - 1;
++    const tr = this.rad(cls);
++    const mg = Math.max(30 * this.k, tr * 0.9);
++    for (const sg of [-1, 1]) {
++      const x = Math.min(W - mg, Math.max(mg, c[0] + sg * ux * tr * 0.9));
++      const y = Math.min(H - mg, Math.max(mg, c[1] + sg * uy * tr * 0.9));
++      // 面積を保つ（2 個で元と同じ面積になる半径 ×0.968）。生まれた直後は小さく、少しずつ育つ
++      const kid = this.spawn(x, y, cls, tr * 0.968, tr * 0.7, j.hue);
++      this.setVel(kid, v[0] + (sg * ux * 1.6) / SUB, v[1] + (sg * uy * 1.6) / SUB);
++    }
++    this.stats.splits++;
++    this.fx.push({ x: c[0], y: c[1], r: j.r * 0.6, t: 0, L: 24, g: 1.2 });
++  }
++
++  /** 1 フレーム（1/60 秒）進める */
++  step() {
++    const P = this.P;
++    this.pending = [];
++    for (let s = 0; s < SUB; s++) this.stepSub(DT / SUB);
++    for (const [A, B] of this.pending) this.mergePair(A, B);
++    if (this.pending.length) this.jellies = this.jellies.filter((j) => !j.dead);
++    for (const j of this.jellies) {
++      // 成長（大きさと色を、目標へゆっくり近づける）
++      j.t++;
++      j.rebuild(Math.abs(j.tr - j.r) > 0.05 ? j.r + (j.tr - j.r) * 0.06 : j.r, P.amoeba);
++      const dh = ((j.hueTo - j.hue + 540) % 360) - 180;
++      j.hue = (j.hue + dh * 0.08 + 360) % 360;
++    }
++    this.regulate();
++    const evFrames = Math.max(1, P.evSec * 60);
++    if (this.ev) {
++      // 臨界点の演出
++      const ev = this.ev;
++      ev.t++;
++      const j = ev.j;
++      const decay = Math.max(0, 1 - ev.t / evFrames);
++      if (j.dead || ev.t > evFrames) {
++        if (!j.dead) this.mode = 'split'; // 演出が終わったら、分裂フェーズへ
++        this.ev = null;
++      } else {
++        const c = j.center();
++        if (ev.t % 10 === 1 && ev.t < 70) this.fx.push({ x: c[0], y: c[1], r: j.r * 0.5, t: 0, L: 50, g: 2.6 }); // 輪が何重にも広がる
++        const s0 = 1 + 0.14 * decay * Math.sin(((ev.t - 1) * 2 * Math.PI) / 34);
++        const s1 = 1 + 0.14 * decay * Math.sin((ev.t * 2 * Math.PI) / 34);
++        const f = s1 / s0; // 大きく脈打つ
++        for (let i = 0; i < j.n; i++) {
++          j.p[i][0] = c[0] + (j.p[i][0] - c[0]) * f;
++          j.p[i][1] = c[1] + (j.p[i][1] - c[1]) * f;
++        }
++      }
++    }
++    for (const f of this.fx) f.t++;
++    while (this.fx.length && this.fx[0].t > (this.fx[0].L || 30)) this.fx.shift();
++    this.frame++;
++    const splitCool = P.splitCoolSec * 60;
++    for (const j of this.jellies.slice()) {
++      // 分裂フェーズ: ぶつかったゼリーは 2 個に分かれる
++      j.age++;
++      if (this.mode === 'split' && !this.ev && j.hit && j.age > splitCool && j.cls > P.minCls && this.jellies.length < P.splitCap) {
++        j.dead = true;
++        this.splitJelly(j);
++      }
++      j.hit = false;
++    }
++    if (this.jellies.some((j) => j.dead)) this.jellies = this.jellies.filter((j) => !j.dead);
++    if (this.mode === 'split' && !this.ev && this.jellies.every((j) => j.cls <= P.minCls)) {
++      this.mode = 'grow'; // 小さくなりきったら、また成長へ
++      this.stats.cycles++;
++    }
++    if (this.mode === 'grow' && !this.ev && this.frame % 20 === 0 && this.totalArea() < P.fill * this.W * this.H) this.spawnOne();
++    this.stats.top = this.jellies.filter((j) => j.cls === TOP).length;
++  }
++}
+diff --git a/src/modes/params.ts b/src/modes/params.ts
+index 788b9e5..bddded8 100644
+--- a/src/modes/params.ts
++++ b/src/modes/params.ts
+@@ -119,6 +119,21 @@ export const NOISE6_PARAMS: ParamDef[] = [
+   { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 0.75 },
+ ];
+ 
++export const JELLY_PARAMS: ParamDef[] = [
++  { key: 'fill', label: 'ゼリーの量（箱を埋める割合。多いほど重い）', min: 0.15, max: 0.7, step: 0.01, default: 0.45 },
++  { key: 'sizeScale', label: 'ゼリーの大きさ（変えると初めからやり直す。大きすぎると箱に収まる大きさで止まる）', min: 0.4, max: 1.6, step: 0.05, default: 1 },
++  { key: 'speed', label: '跳ね回る速さ', min: 1, max: 8, step: 0.1, default: 3.5 },
++  { key: 'soft', label: 'やわらかさ（大きいほどぷるぷる）', min: 0.5, max: 1, step: 0.01, default: 0.92 },
++  { key: 'press', label: 'ふくらみ（大きいほど丸く張る）', min: 0.7, max: 1.05, step: 0.01, default: 0.9 },
++  { key: 'amoeba', label: 'いびつさ（アメーバのような形のゆらぎ）', min: 0, max: 0.6, step: 0.02, default: 0.3 },
++  { key: 'mergeDelay', label: '合体できるまでの待ち（秒。生まれてから）', min: 0, max: 10, step: 0.1, default: 1.5 },
++  { key: 'splitCool', label: '分裂できるまでの待ち（秒。生まれてから）', min: 0, max: 5, step: 0.1, default: 0.8 },
++  { key: 'minCls', label: '分裂で小さくなる下限の段（0 が最小。小さいほど個数が増えて重い）', min: 0, max: 5, step: 1, default: 2 },
++  { key: 'evSec', label: '臨界点の演出の長さ（秒）', min: 1, max: 10, step: 0.5, default: 4 },
++  { key: 'splitCap', label: '個数の上限（重いときに下げる）', min: 40, max: 400, step: 10, default: 150 },
++  { key: 'quality', label: '描画の解像度（小さいほど軽い）', min: 0.3, max: 1, step: 0.05, default: 0.75 },
++];
++
+ /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
+ export const MODE_PARAMS: Record<string, ParamDef[]> = {
+   noise1: NOISE1_PARAMS,
+@@ -127,6 +142,7 @@ export const MODE_PARAMS: Record<string, ParamDef[]> = {
+   noise4: NOISE4_PARAMS,
+   noise5: NOISE5_PARAMS,
+   noise6: NOISE6_PARAMS,
++  jelly: JELLY_PARAMS,
+ };
+ 
+ export function paramDefaults(defs: ParamDef[]): ParamValues {
+diff --git a/src/settings.ts b/src/settings.ts
+index e88e5ca..b25d367 100644
+--- a/src/settings.ts
++++ b/src/settings.ts
+@@ -31,7 +31,7 @@ export type GlobalSettings = {
+ };
+ 
+ export type MonitorSettings = {
+-  mode: string; // 'tiles'（画像タイル）| 'noise1'（カールノイズの粒子）| 'noise2'（Mandelbulb）| 'noise3'（ワイヤーフレーム地形）| 'noise4'（ドメインワーピング）| 'noise5'（ルーン）| 'noise6'（万華鏡）
++  mode: string; // 'tiles'（画像タイル）| 'noise1'（カールノイズの粒子）| 'noise2'（Mandelbulb）| 'noise3'（ワイヤーフレーム地形）| 'noise4'（ドメインワーピング）| 'noise5'（ルーン）| 'noise6'（万華鏡）| 'jelly'（ゼリー）
+   noiseSize: number; // ノイズの粒子テクスチャの一辺（粒子数は二乗）。負荷に直結する
+   fps: number; // FPS の上限（整数）
+   modeParams: Record<string, ParamValues>; // モードごとの調整値（src/modes/params.ts）。無い項目は既定値
+@@ -100,7 +100,7 @@ const KEY_MONITOR_DEFAULT = 'wiredframe_monitor_default_v2';
+ const KEY_MONITOR_PREFIX = 'wiredframe_monitor_v2:';
+ 
+ const PLAY_MODES = ['rotation', 'random', 'fixed'];
+-export const MODES = ['tiles', 'noise1', 'noise2', 'noise3', 'noise4', 'noise5', 'noise6'];
++export const MODES = ['tiles', 'noise1', 'noise2', 'noise3', 'noise4', 'noise5', 'noise6', 'jelly'];
+ // 0 以下だと壊れる項目
+ const POSITIVE_KEYS = new Set(['intervalSec', 'tileSize', 'spacingX', 'spacingY']);
+ // 整数で範囲が決まっている項目（cols × rows 枚のテクスチャを作るので上限を設ける）
+-- 
+2.43.0
+
+
+From c7ac43c5695c894d8e791bc4aeb4f879627de207 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 20 Oct 2026 06:58:44 +0900
+Subject: [PATCH 2/2] =?UTF-8?q?=E3=82=BC=E3=83=AA=E3=83=BC:=20=E5=80=8B?=
+ =?UTF-8?q?=E6=95=B0=E3=81=AE=E4=B8=8A=E9=99=90=E3=81=A7=E5=88=86=E8=A3=82?=
+ =?UTF-8?q?=E3=81=8C=E6=AD=A2=E3=81=BE=E3=81=A3=E3=81=9F=E3=81=A8=E3=81=8D?=
+ =?UTF-8?q?=E3=80=8110=E7=A7=92=E3=81=A7=E6=88=90=E9=95=B7=E3=81=AB?=
+ =?UTF-8?q?=E6=88=BB=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JcVXeBHV4Dnx9JYtJV1p8x
+---
+ src/modes/jelly/JellyWorld.ts | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/modes/jelly/JellyWorld.ts b/src/modes/jelly/JellyWorld.ts
+index b87f93c..0fd4321 100644
+--- a/src/modes/jelly/JellyWorld.ts
++++ b/src/modes/jelly/JellyWorld.ts
+@@ -218,6 +218,7 @@ export class JellyWorld {
+   private frame = 0;
+   private pending: [Jelly, Jelly][] = [];
+   private acc = 0;
++  private splitIdle = 0; // 分裂フェーズで、最後に分裂してからのフレーム数
+   private k = 1; // 実際に使う大きさの倍率（箱に収まるよう制限済み）
+ 
+   constructor(W: number, params?: Partial<JellyParams>) {
+@@ -262,6 +263,7 @@ export class JellyWorld {
+     this.pending = [];
+     this.frame = 0;
+     this.acc = 0;
++    this.splitIdle = 0;
+     this.stats = { merges: 0, top: 0, events: 0, splits: 0, cycles: 0 };
+     // 最初から、箱の面積の割合 fill の 6 割くらいまで置いておく
+     for (let i = 0; i < 40 && this.totalArea() < this.P.fill * 0.6 * this.W * this.H; i++) this.spawnOne();
+@@ -771,11 +773,15 @@ export class JellyWorld {
+       if (this.mode === 'split' && !this.ev && j.hit && j.age > splitCool && j.cls > P.minCls && this.jellies.length < P.splitCap) {
+         j.dead = true;
+         this.splitJelly(j);
++        this.splitIdle = 0;
+       }
+       j.hit = false;
+     }
+     if (this.jellies.some((j) => j.dead)) this.jellies = this.jellies.filter((j) => !j.dead);
+-    if (this.mode === 'split' && !this.ev && this.jellies.every((j) => j.cls <= P.minCls)) {
++    // 個数の上限などで分裂が進まなくなったら（10 秒）、成長に戻す。永久に分裂モードで止まらないように
++    if (this.mode === 'split' && !this.ev) this.splitIdle++;
++    else this.splitIdle = 0;
++    if (this.mode === 'split' && !this.ev && (this.splitIdle > 600 || this.jellies.every((j) => j.cls <= P.minCls))) {
+       this.mode = 'grow'; // 小さくなりきったら、また成長へ
+       this.stats.cycles++;
+     }
+-- 
+2.43.0
+

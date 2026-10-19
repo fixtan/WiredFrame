@@ -119,6 +119,21 @@ export const NOISE6_PARAMS: ParamDef[] = [
   { key: 'saturation', label: '色の鮮やかさ', min: 0, max: 1, step: 0.05, default: 0.75 },
 ];
 
+export const JELLY_PARAMS: ParamDef[] = [
+  { key: 'fill', label: 'ゼリーの量（箱を埋める割合。多いほど重い）', min: 0.15, max: 0.7, step: 0.01, default: 0.45 },
+  { key: 'sizeScale', label: 'ゼリーの大きさ（変えると初めからやり直す。大きすぎると箱に収まる大きさで止まる）', min: 0.4, max: 1.6, step: 0.05, default: 1 },
+  { key: 'speed', label: '跳ね回る速さ', min: 1, max: 8, step: 0.1, default: 3.5 },
+  { key: 'soft', label: 'やわらかさ（大きいほどぷるぷる）', min: 0.5, max: 1, step: 0.01, default: 0.92 },
+  { key: 'press', label: 'ふくらみ（大きいほど丸く張る）', min: 0.7, max: 1.05, step: 0.01, default: 0.9 },
+  { key: 'amoeba', label: 'いびつさ（アメーバのような形のゆらぎ）', min: 0, max: 0.6, step: 0.02, default: 0.3 },
+  { key: 'mergeDelay', label: '合体できるまでの待ち（秒。生まれてから）', min: 0, max: 10, step: 0.1, default: 1.5 },
+  { key: 'splitCool', label: '分裂できるまでの待ち（秒。生まれてから）', min: 0, max: 5, step: 0.1, default: 0.8 },
+  { key: 'minCls', label: '分裂で小さくなる下限の段（0 が最小。小さいほど個数が増えて重い）', min: 0, max: 5, step: 1, default: 2 },
+  { key: 'evSec', label: '臨界点の演出の長さ（秒）', min: 1, max: 10, step: 0.5, default: 4 },
+  { key: 'splitCap', label: '個数の上限（重いときに下げる）', min: 40, max: 400, step: 10, default: 150 },
+  { key: 'quality', label: '描画の解像度（小さいほど軽い）', min: 0.3, max: 1, step: 0.05, default: 0.75 },
+];
+
 /** モード名 → 調整項目。ここに無いモード（タイルなど）には調整欄が出ない。 */
 export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise1: NOISE1_PARAMS,
@@ -127,6 +142,7 @@ export const MODE_PARAMS: Record<string, ParamDef[]> = {
   noise4: NOISE4_PARAMS,
   noise5: NOISE5_PARAMS,
   noise6: NOISE6_PARAMS,
+  jelly: JELLY_PARAMS,
 };
 
 export function paramDefaults(defs: ParamDef[]): ParamValues {
